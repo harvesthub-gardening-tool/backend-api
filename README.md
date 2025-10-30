@@ -7,7 +7,7 @@ A gRPC/Connect API service for collecting and querying garden sensor data, built
 - **Time-series data collection** from garden sensors (temperature, humidity, soil moisture)
 - **TimescaleDB** for efficient time-series storage and queries
 - **gRPC/Connect** API with automatic OpenAPI/Swagger documentation
-- **Protocol Buffers** for API definition
+- **Protocol Buffers** for type-safe API definitions
 - **Docker Compose** setup for easy deployment
 
 ## Tech Stack
@@ -15,25 +15,26 @@ A gRPC/Connect API service for collecting and querying garden sensor data, built
 - **Go 1.24**
 - **TimescaleDB** (PostgreSQL extension for time-series data)
 - **Connect RPC** (gRPC-compatible protocol)
-- **Protocol Buffers** (Buf tooling)
-- **Swagger UI** for API documentation
+- **Protocol Buffers** via [harvesthub-gardening-tool/protos](https://github.com/harvesthub-gardening-tool/protos)
 
 ## Project Structure
 
 ```
 .
-├── proto/              # Protocol Buffer definitions
-│   └── garden/v1/      # Garden service API definition
-├── gen/                # Generated code
-│   ├── proto/          # Go protobuf & Connect handlers
-│   └── openapiv2/      # OpenAPI/Swagger specs
 ├── internal/           # Internal packages
-│   └── service/        # Business logic
+│   └── service/        # Business logic (GardenService)
 ├── server/             # HTTP server entry point
 ├── init.sql            # Database initialization
 ├── docker-compose.yml  # Docker services configuration
-└── Dockerfile          # API service image
+├── Dockerfile          # API service image
+└── go.mod              # Go dependencies
 ```
+
+## 📚 API Documentation
+
+**Live API Docs:** https://harvesthub-gardening-tool.github.io/protos/
+
+Interactive Swagger UI with all endpoints, request/response examples, and schemas.
 
 ## Quick Start
 
@@ -41,7 +42,6 @@ A gRPC/Connect API service for collecting and querying garden sensor data, built
 
 - Docker & Docker Compose
 - Go 1.24+ (for local development)
-- Buf CLI (for protobuf generation)
 
 ### Run with Docker Compose
 
@@ -52,7 +52,6 @@ docker-compose up
 This starts:
 - **API service** on `http://localhost:8080`
 - **TimescaleDB** on `localhost:5432`
-- **Swagger UI** on `http://localhost:8081`
 
 ### Local Development
 
@@ -68,48 +67,77 @@ DATABASE_URL="postgres://user:password@localhost:5432/garden_db?sslmode=disable"
 
 ## API Endpoints
 
+All endpoints use Connect protocol (gRPC-compatible):
+
 ### Insert Sensor Data
 ```bash
-POST /garden.v1.GardenService/InsertSensorData
-Content-Type: application/json
-
-{
-  "node_id": "sensor_01",
-  "temperature": 22.5,
-  "humidity": 65.0,
-  "soil_moisture": 45.0,
-  "timestamp": 1698765432000
-}
+curl -X POST http://localhost:8080/garden.v1.GardenService/InsertSensorData \
+  -H "Content-Type: application/json" \
+  -d '{
+    "node_id": "sensor_01",
+    "temperature": 22.5,
+    "humidity": 65.0,
+    "soil_moisture": 45.0,
+    "timestamp": 1698765432000
+  }'
 ```
 
 ### Get Summary
 ```bash
-POST /garden.v1.GardenService/GetSummary
-Content-Type: application/json
-
-{
-  "node_id": "sensor_01",
-  "hours": 24
-}
+curl -X POST http://localhost:8080/garden.v1.GardenService/GetSummary \
+  -H "Content-Type: application/json" \
+  -d '{
+    "node_id": "sensor_01",
+    "hours": 24
+  }'
 ```
 
-## Protocol Buffers
+## Protocol Buffers Integration
 
-The API is defined using Protocol Buffers in `proto/garden/v1/garden.proto`.
+This backend uses the centrally managed proto definitions from [protos repository](https://github.com/harvesthub-gardening-tool/protos).
 
-### Regenerate Code
+### Dependencies
+
+The proto-generated code is imported as a Go module:
+
+```go
+import (
+    gardenv1 "github.com/harvesthub-gardening-tool/protos-go/garden/v1"
+    "github.com/harvesthub-gardening-tool/protos-go/garden/v1/gardenv1connect"
+)
+```
+
+### Update Proto Definitions
 
 ```bash
-buf generate
+# Get latest proto code
+go get -u github.com/harvesthub-gardening-tool/protos-go@latest
+go mod tidy
+
+# Rebuild
+go build ./server
 ```
 
-This generates:
-- Go code with Connect handlers
-- OpenAPI/Swagger documentation
+### Test Proto Changes Before Merging
+
+When testing a feature branch from the protos repo:
+
+```bash
+# Use feature branch code
+go get github.com/harvesthub-gardening-tool/protos-go@feature/your-feature
+go mod tidy
+go build ./server
+
+# Test the changes work
+# ...
+
+# Once merged, update to latest
+go get -u github.com/harvesthub-gardening-tool/protos-go@latest
+```
 
 ## Database Schema
 
-The service uses TimescaleDB with a hypertable for sensor data:
+The service uses TimescaleDB with a hypertable for efficient time-series queries:
 
 ```sql
 CREATE TABLE sensor_data (
@@ -121,15 +149,49 @@ CREATE TABLE sensor_data (
 );
 
 SELECT create_hypertable('sensor_data', 'time');
+CREATE INDEX idx_node_id ON sensor_data (node_id, time DESC);
 ```
+
+**Time-series features:**
+- Automatic partitioning by time
+- Efficient aggregation queries with `time_bucket()`
+- Compression for older data
+- Continuous aggregates (future)
 
 ## Environment Variables
 
-- `DATABASE_URL`: PostgreSQL connection string (default: `postgres://user:password@localhost:5432/garden_db?sslmode=disable`)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | `postgres://user:password@localhost:5432/garden_db?sslmode=disable` | PostgreSQL connection string |
 
-## API Documentation
+## Development Workflow
 
-Access Swagger UI at `http://localhost:8081` when running with Docker Compose.
+1. **Update proto definitions** in [protos repo](https://github.com/harvesthub-gardening-tool/protos)
+2. **Test with feature branch**: `go get @feature/xyz`
+3. **Merge proto PR** → auto-publishes to protos-go
+4. **Update backend**: `go get -u @latest`
+5. **Deploy** updated backend
+
+## Architecture
+
+```
+┌─────────────┐
+│   Sensors   │ (ESP32, IoT devices)
+└──────┬──────┘
+       │ HTTP/JSON
+       ▼
+┌─────────────────────────────┐
+│   Backend API (Connect)     │
+│  - InsertSensorData         │
+│  - GetSummary               │
+└──────────┬──────────────────┘
+           │
+           ▼
+    ┌──────────────┐
+    │ TimescaleDB  │
+    │ (time-series)│
+    └──────────────┘
+```
 
 ## License
 
