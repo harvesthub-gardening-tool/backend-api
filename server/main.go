@@ -11,7 +11,7 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
-	"harvest-hub/api/gen/proto/garden/v1/gardenv1connect"
+	"github.com/harvesthub-gardening-tool/protos-go/garden/v1/gardenv1connect"
 	"harvest-hub/api/internal/service"
 )
 

@@ -8,7 +8,7 @@ import (
 	"connectrpc.com/connect"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	gardenv1 "harvest-hub/api/gen/proto/garden/v1"
+	gardenv1 "github.com/harvesthub-gardening-tool/protos-go/garden/v1"
 )
 
 type GardenService struct {
