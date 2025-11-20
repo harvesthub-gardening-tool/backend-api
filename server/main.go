@@ -10,9 +10,6 @@ import (
 	"connectrpc.com/connect"
 	"github.com/harvesthub-gardening-tool/protos-go/garden/v1/gardenv1connect"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/zitadel/zitadel-go/v3/pkg/authorization"
-	"github.com/zitadel/zitadel-go/v3/pkg/authorization/oauth"
-	"github.com/zitadel/zitadel-go/v3/pkg/zitadel"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
@@ -70,11 +67,10 @@ func main() {
 	// Start server
 	addr := ":8080"
 	fmt.Printf("✅ Garden API listening on %s\n", addr)
-	fmt.Printf("🔐 Authentication: Zitadel OAuth2 Introspection\n")
+	fmt.Printf("🔐 Authentication: Zitadel JWT Validation (JWKS cached)\n")
 	fmt.Printf("   - Domain: %s\n", zitadelDomain)
-	if zitadelKeyPath != "" {
-		fmt.Printf("   - Key: %s\n", zitadelKeyPath)
-	}
+	fmt.Printf("   - Client ID: %s\n", zitadelClientID)
+	fmt.Printf("   - Performance: ~1ms validation\n")
 
 	if err := http.ListenAndServe(addr, h2c.NewHandler(corsHandler, &http2.Server{})); err != nil {
 		log.Fatalf("❌ Server failed: %v", err)

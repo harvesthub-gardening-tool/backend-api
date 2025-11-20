@@ -20,7 +20,7 @@ fi
 source .env
 if [ -z "$ZITADEL_MASTERKEY" ]; then
     echo -e "${BLUE}Generating ZITADEL_MASTERKEY...${NC}"
-    MASTERKEY=$(openssl rand -base64 32)
+    MASTERKEY=$(openssl rand -base64 28)
     echo "ZITADEL_MASTERKEY=$MASTERKEY" >> .env
     echo -e "${GREEN}✓ Master key generated and added to .env${NC}\n"
 else
