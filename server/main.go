@@ -41,21 +41,15 @@ func main() {
 		zitadelDomain = "localhost:8085"
 	}
 
-	zitadelKeyPath := os.Getenv("ZITADEL_KEY_PATH")
-	if zitadelKeyPath == "" {
-		log.Println("⚠️  ZITADEL_KEY_PATH not set, will try to use introspection without service account")
+	zitadelClientID := os.Getenv("ZITADEL_CLIENT_ID")
+	if zitadelClientID == "" {
+		log.Fatal("❌ ZITADEL_CLIENT_ID is required")
 	}
 
-	// Initialize Zitadel authorization
-	var authz *authorization.Authorizer[*oauth.IntrospectionContext]
-	if zitadelKeyPath != "" {
-		authz, err = authorization.New(ctx, zitadel.New(zitadelDomain), oauth.DefaultAuthorization(zitadelKeyPath))
-	} else {
-		// Fallback: introspection without service account credentials (requires public introspection endpoint)
-		authz, err = authorization.New(ctx, zitadel.New(zitadelDomain), oauth.DefaultAuthorization(""))
-	}
+	// Initialize authentication (Zitadel JWT validation with JWKS caching)
+	authInterceptor, err := auth.NewAuthInterceptor(ctx, zitadelDomain, zitadelClientID)
 	if err != nil {
-		log.Fatalf("Failed to initialize Zitadel authorization: %v", err)
+		log.Fatalf("Failed to initialize authentication: %v", err)
 	}
 
 	// Create service
@@ -66,7 +60,7 @@ func main() {
 
 	path, handler := gardenv1connect.NewGardenServiceHandler(
 		gardenSvc,
-		connect.WithInterceptors(auth.ConnectInterceptor(authz)),
+		connect.WithInterceptors(authInterceptor),
 	)
 	mux.Handle(path, handler)
 
