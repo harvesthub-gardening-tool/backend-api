@@ -1,75 +1,134 @@
 services:
-  api:
-    build: .
-    ports:
-      - "8080:8080"
-    environment:
-      - DATABASE_URL=postgres://user:password@db:5432/garden_db?sslmode=disable
-      - ZITADEL_ISSUER=http://zitadel:8080
-      - ZITADEL_PROJECT_ID=${ZITADEL_PROJECT_ID}
-      - HUB_SERVICE_ACCOUNT_ID=${HUB_SERVICE_ACCOUNT_ID}
-    depends_on:
-      db:
-        condition: service_healthy
-      zitadel:
-        condition: service_healthy
+    api:
+        build: .
+        ports:
+            - "8080:8080"
+        environment:
+            - DATABASE_URL=postgres://postgres:postgres@db:5432/garden_db?sslmode=disable
+            - ZITADEL_DOMAIN=localhost:8085
+            - ZITADEL_CLIENT_ID=${ZITADEL_CLIENT_ID}
+            - HUB_SERVICE_ACCOUNT_ID=${HUB_SERVICE_ACCOUNT_ID}
+        depends_on:
+            db:
+                condition: service_healthy
+            zitadel:
+                condition: service_healthy
 
-  db:
-    image: timescale/timescaledb:latest-pg14
-    environment:
-      POSTGRES_DB: garden_db
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
-    ports:
-      - "5432:5432"
-    volumes:
-      - ./init.sql:/docker-entrypoint-initdb.d/01-garden.sql
-      - ./zitadel-init.sql:/docker-entrypoint-initdb.d/00-zitadel.sql
-      - timescale_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U user -d garden_db"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+    db:
+        restart: unless-stopped
+        image: postgres:17
+        environment:
+            PGUSER: postgres
+            POSTGRES_PASSWORD: postgres
+            POSTGRES_DB: postgres
+        healthcheck:
+            test:
+                - CMD-SHELL
+                - pg_isready
+                - -d
+                - postgres
+                - -U
+                - postgres
+            interval: 10s
+            timeout: 30s
+            retries: 5
+            start_period: 20s
+        ports:
+            - "5432:5432"
+        volumes:
+            - postgres_data:/var/lib/postgresql/data
+            - ./init-databases.sql:/docker-entrypoint-initdb.d/init-databases.sql
+        networks:
+            - harvest-hub
 
-  zitadel:
-    image: ghcr.io/zitadel/zitadel:latest
-    command: 'start-from-init --masterkeyFromEnv --tlsMode disabled'
-    environment:
-      - ZITADEL_DATABASE_POSTGRES_HOST=db
-      - ZITADEL_DATABASE_POSTGRES_PORT=5432
-      - ZITADEL_DATABASE_POSTGRES_DATABASE=zitadel_db
-      - ZITADEL_DATABASE_POSTGRES_USER_USERNAME=user
-      - ZITADEL_DATABASE_POSTGRES_USER_PASSWORD=password
-      - ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE=disable
-      - ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME=user
-      - ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD=password
-      - ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE=disable
-      - ZITADEL_MASTERKEY=${ZITADEL_MASTERKEY}
-      - ZITADEL_EXTERNALSECURE=false
-      - ZITADEL_EXTERNALPORT=8085
-      - ZITADEL_EXTERNALDOMAIN=localhost
-    ports:
-      - "8085:8080"
-    depends_on:
-      db:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "/app/zitadel", "ready"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    zitadel:
+        restart: unless-stopped
+        image: ghcr.io/zitadel/zitadel:latest
+        command: start-from-init --masterkey "MasterkeyNeedsToHave32Characters"
+        environment:
+            ZITADEL_EXTERNALDOMAIN: localhost
+            ZITADEL_EXTERNALPORT: 8085
+            ZITADEL_EXTERNALSECURE: false
+            ZITADEL_TLS_ENABLED: false
 
-  swagger-ui:
-    image: swaggerapi/swagger-ui
-    ports:
-      - "8081:8080"
-    environment:
-      - SWAGGER_JSON=/docs/api.swagger.json
-    volumes:
-      - ./gen/openapiv2:/docs
-    depends_on:
-      - api
+            # Database connection
+            ZITADEL_DATABASE_POSTGRES_HOST: db
+            ZITADEL_DATABASE_POSTGRES_PORT: 5432
+            ZITADEL_DATABASE_POSTGRES_DATABASE: zitadel
+            ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME: postgres
+            ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD: postgres
+            ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE: disable
+            ZITADEL_DATABASE_POSTGRES_USER_USERNAME: zitadel
+            ZITADEL_DATABASE_POSTGRES_USER_PASSWORD: zitadel
+            ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE: disable
+
+            # Login client configuration
+            ZITADEL_FIRSTINSTANCE_LOGINCLIENTPATPATH: /data/login-client.pat
+            ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORDCHANGEREQUIRED: false
+            ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_USERNAME: login-client
+            ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_MACHINE_NAME: Automatically Initialized IAM_LOGIN_CLIENT
+            ZITADEL_FIRSTINSTANCE_ORG_LOGINCLIENT_PAT_EXPIRATIONDATE: "2029-01-01T00:00:00Z"
+
+            # Login v2
+            ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_REQUIRED: true
+            ZITADEL_DEFAULTINSTANCE_FEATURES_LOGINV2_BASEURI: http://localhost:3000/ui/v2/login
+            ZITADEL_OIDC_DEFAULTLOGINURLV2: http://localhost:3000/ui/v2/login/login?authRequest=
+            ZITADEL_OIDC_DEFAULTLOGOUTURLV2: http://localhost:3000/ui/v2/login/logout?post_logout_redirect=
+            ZITADEL_SAML_DEFAULTLOGINURLV2: http://localhost:3000/ui/v2/login/login?samlRequest=
+
+        healthcheck:
+            test:
+                - CMD
+                - /app/zitadel
+                - ready
+            interval: 10s
+            timeout: 60s
+            retries: 5
+            start_period: 10s
+        user: "0"
+        volumes:
+            - zitadel_data:/data:delegated
+        ports:
+            - "8085:8080"
+            - "3000:3000"
+        networks:
+            - harvest-hub
+        depends_on:
+            db:
+                condition: service_healthy
+
+    login:
+        restart: unless-stopped
+        image: ghcr.io/zitadel/zitadel-login:latest
+        environment:
+            - ZITADEL_API_URL=http://localhost:8080
+            - NEXT_PUBLIC_BASE_PATH=/ui/v2/login
+            - ZITADEL_SERVICE_USER_TOKEN_FILE=/data/login-client.pat
+        network_mode: service:zitadel
+        user: "0"
+        volumes:
+            - zitadel_data:/data:ro
+        depends_on:
+            zitadel:
+                condition: service_healthy
+                restart: false
+
+    swagger-ui:
+        image: swaggerapi/swagger-ui
+        ports:
+            - "8081:8080"
+        environment:
+            - SWAGGER_JSON=/docs/api.swagger.json
+        volumes:
+            - ./gen/openapiv2:/docs
+        depends_on:
+            - api
+        networks:
+            - harvest-hub
+
+networks:
+    harvest-hub:
 
 volumes:
-  timescale_data:
+    postgres_data:
+    zitadel_data:

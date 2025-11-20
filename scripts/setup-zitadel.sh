@@ -1,41 +1,27 @@
 #!/bin/bash
 
-# Colors for output
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
-RED='\033[0;31m'
-NC='\033[0m' # No Color
+YELLOW='\033[0;33m'
+NC='\033[0m'
 
 echo -e "${BLUE}=== Zitadel Setup Script ===${NC}\n"
 
-# Check if .env file exists
+# Check if .env exists
 if [ ! -f .env ]; then
-    echo -e "${RED}Error: .env file not found${NC}"
-    echo "Please create .env from .env.example first:"
-    echo "  cp .env.example .env"
-    exit 1
-fi
-
-# Check if ZITADEL_MASTERKEY is set
-source .env
-if [ -z "$ZITADEL_MASTERKEY" ]; then
-    echo -e "${BLUE}Generating ZITADEL_MASTERKEY...${NC}"
-    MASTERKEY=$(openssl rand -base64 28)
-    echo "ZITADEL_MASTERKEY=$MASTERKEY" >> .env
-    echo -e "${GREEN}✓ Master key generated and added to .env${NC}\n"
-else
-    echo -e "${GREEN}✓ ZITADEL_MASTERKEY already set${NC}\n"
+    echo -e "${YELLOW}Creating .env from .env.example...${NC}"
+    cp .env.example .env
 fi
 
 echo -e "${BLUE}Starting services...${NC}"
-docker-compose up -d db zitadel
+docker-compose up -d
 
-echo -e "\n${BLUE}Waiting for Zitadel to be healthy...${NC}"
-max_attempts=30
+echo -e "\n${BLUE}Waiting for Zitadel to be ready...${NC}"
+max_attempts=60
 attempt=0
 while [ $attempt -lt $max_attempts ]; do
     if docker-compose ps zitadel | grep -q "healthy"; then
-        echo -e "${GREEN}✓ Zitadel is healthy${NC}\n"
+        echo -e "\n${GREEN}✓ Zitadel is ready!${NC}\n"
         break
     fi
     attempt=$((attempt + 1))
@@ -44,27 +30,28 @@ while [ $attempt -lt $max_attempts ]; do
 done
 
 if [ $attempt -eq $max_attempts ]; then
-    echo -e "\n${RED}Error: Zitadel failed to become healthy${NC}"
+    echo -e "\n${YELLOW}Zitadel is taking longer than expected. Check logs with: docker-compose logs zitadel${NC}"
     exit 1
 fi
 
-echo -e "${GREEN}=== Zitadel Setup Complete ===${NC}\n"
-echo "Next steps:"
-echo "1. Open Zitadel admin console: http://localhost:8085"
-echo "2. Login with default credentials (first time setup will prompt you)"
-echo "3. Create a new project for Harvest Hub"
-echo "4. Create service account for Hub:"
+echo -e "${GREEN}=== Setup Complete! ===${NC}\n"
+echo "🌐 Zitadel Console: http://localhost:8085"
+echo "🔐 Login: admin@zitadel.localhost / Password1!"
+echo ""
+echo -e "${BLUE}Next steps:${NC}"
+echo "1. Open http://localhost:8085 and login"
+echo "2. Create a new project: 'Harvest Hub'"
+echo "3. Create API Application:"
+echo "   - Go to your project → Applications → New"
+echo "   - Type: API"
+echo "   - Auth Method: JWT"
+echo "   - Copy the Client ID → Update .env: ZITADEL_CLIENT_ID=<client_id>"
+echo ""
+echo "4. Create Hub Service Account:"
 echo "   - Go to Users → Service Accounts → New"
 echo "   - Name: 'harvest-hub-iot'"
-echo "   - Generate API key (JWT)"
-echo "5. Create API application for mobile app:"
-echo "   - Go to Projects → Your Project → Applications → New"
-echo "   - Type: API"
-echo "   - Authentication: JWT"
-echo "6. Update .env with:"
-echo "   - ZITADEL_PROJECT_ID=<your_project_id>"
-echo "   - HUB_SERVICE_ACCOUNT_ID=<service_account_id>"
+echo "   - Create → Generate Key (JWT)"
+echo "   - Download the key.json (for your Rust Hub)"
+echo "   - Copy User ID → Update .env: HUB_SERVICE_ACCOUNT_ID=<user_id>"
 echo ""
-echo "7. Save the Hub's JWT key securely for your Rust Hub configuration"
-echo ""
-echo -e "${BLUE}Documentation: https://zitadel.com/docs/guides/integrate/service-users/authenticate-service-users${NC}"
+echo "5. Restart API: docker-compose restart api"
