@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	gardenv1 "github.com/harvesthub-gardening-tool/protos-go/garden/v1"
+	"harvest-hub/api/internal/auth"
 )
 
 type GardenService struct {
@@ -24,6 +25,14 @@ func (s *GardenService) InsertSensorData(
 	req *connect.Request[gardenv1.InsertSensorDataRequest],
 ) (*connect.Response[gardenv1.InsertSensorDataResponse], error) {
 	msg := req.Msg
+
+	// Get the authenticated user/service account from context
+	// This is what you wanted - user info is in the context!
+	userID := auth.GetUserID(ctx)
+	isServiceAccount := auth.IsServiceAccount(ctx)
+
+	// Log who's inserting data
+	fmt.Printf("Insert from: userID=%s, isServiceAccount=%v\n", userID, isServiceAccount)
 
 	query := `
 INSERT INTO sensor_data (node_id, time, temperature, humidity, soil_moisture)
@@ -49,7 +58,7 @@ VALUES ($1, $2, $3, $4, $5)
 
 	return connect.NewResponse(&gardenv1.InsertSensorDataResponse{
 		Success: true,
-		Message: "Data inserted successfully",
+		Message: fmt.Sprintf("Data inserted by %s", userID),
 	}), nil
 }
 
@@ -58,6 +67,16 @@ func (s *GardenService) GetSummary(
 	req *connect.Request[gardenv1.GetSummaryRequest],
 ) (*connect.Response[gardenv1.GetSummaryResponse], error) {
 	msg := req.Msg
+
+	// Get the authenticated user from context
+	userID := auth.GetUserID(ctx)
+	username := auth.GetUsername(ctx)
+
+	// Log who's reading data
+	fmt.Printf("GetSummary from: userID=%s, username=%s\n", userID, username)
+
+	// In multi-tenant: filter by userID
+	// For now: return all data
 
 	hours := int32(24)
 	if msg.Hours != nil && *msg.Hours > 0 {
