@@ -17,11 +17,19 @@ type contextKey string
 const authContextKey contextKey = "zitadel_auth_context"
 
 // NewAuthInterceptor creates a Connect interceptor with Zitadel JWT validation
-func NewAuthInterceptor(ctx context.Context, zitadelDomain, clientID string) (connect.UnaryInterceptorFunc, error) {
+func NewAuthInterceptor(ctx context.Context, zitadelDomain, clientID string, zitadelEnv string) (connect.UnaryInterceptorFunc, error) {
+
+	zitadelOpts := []zitadel.Option{}
+	if zitadelEnv == "LOCAL" {
+		// HTTP on localhost:8085 in dev
+		zitadelOpts = append(zitadelOpts, zitadel.WithInsecure("8085"))
+	}
+
 	// Initialize Zitadel authorization with JWT validation (fast, JWKS cached)
+	print(zitadelDomain)
 	authz, err := authorization.New(
 		ctx,
-		zitadel.New(zitadelDomain),
+		zitadel.New(zitadelDomain, zitadelOpts...),
 		oauth.WithJWT(clientID, http.DefaultClient),
 	)
 	if err != nil {

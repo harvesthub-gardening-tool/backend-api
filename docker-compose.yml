@@ -5,7 +5,7 @@ services:
             - "8080:8080"
         environment:
             - DATABASE_URL=postgres://postgres:postgres@db:5432/garden_db?sslmode=disable
-            - ZITADEL_DOMAIN=localhost:8085
+            - ZITADEL_DOMAIN=${ZITADEL_DOMAIN}
             - ZITADEL_CLIENT_ID=${ZITADEL_CLIENT_ID}
             - HUB_SERVICE_ACCOUNT_ID=${HUB_SERVICE_ACCOUNT_ID}
         depends_on:
@@ -75,6 +75,10 @@ services:
             ZITADEL_OIDC_DEFAULTLOGINURLV2: http://localhost:3000/ui/v2/login/login?authRequest=
             ZITADEL_OIDC_DEFAULTLOGOUTURLV2: http://localhost:3000/ui/v2/login/logout?post_logout_redirect=
             ZITADEL_SAML_DEFAULTLOGINURLV2: http://localhost:3000/ui/v2/login/login?samlRequest=
+
+            ZITADEL_FIRSTINSTANCE_ORG_NAME: HarvestHub
+            ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME: root
+            ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD: RootPassword1!
 
         healthcheck:
             test:

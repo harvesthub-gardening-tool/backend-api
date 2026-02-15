@@ -34,8 +34,10 @@ func main() {
 
 	// Zitadel configuration
 	zitadelDomain := os.Getenv("ZITADEL_DOMAIN")
+	zitadelEnv := "PROD"
 	if zitadelDomain == "" {
-		zitadelDomain = "localhost:8085"
+		zitadelDomain = "localhost"
+		zitadelEnv = "LOCAL"
 	}
 
 	zitadelClientID := os.Getenv("ZITADEL_CLIENT_ID")
@@ -44,7 +46,7 @@ func main() {
 	}
 
 	// Initialize authentication (Zitadel JWT validation with JWKS caching)
-	authInterceptor, err := auth.NewAuthInterceptor(ctx, zitadelDomain, zitadelClientID)
+	authInterceptor, err := auth.NewAuthInterceptor(ctx, zitadelDomain, zitadelClientID, zitadelEnv)
 	if err != nil {
 		log.Fatalf("Failed to initialize authentication: %v", err)
 	}
