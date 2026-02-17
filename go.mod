@@ -6,6 +6,7 @@ require (
 	connectrpc.com/connect v1.19.1
 	github.com/harvesthub-gardening-tool/protos-go v0.0.0-20251030224519-81f0d08c1f7a
 	github.com/jackc/pgx/v5 v5.7.6
+	github.com/pashagolub/pgxmock/v4 v4.9.0
 	github.com/zitadel/zitadel-go/v3 v3.18.1
 	golang.org/x/net v0.44.0
 )

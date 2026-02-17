@@ -6,17 +6,23 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/jackc/pgx/v5/pgxpool"
-
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	gardenv1 "github.com/harvesthub-gardening-tool/protos-go/garden/v1"
 	"harvest-hub/api/internal/auth"
 )
 
-type GardenService struct {
-	db *pgxpool.Pool
+// DB abstracts database operations for testability.
+type DB interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
-func NewGardenService(db *pgxpool.Pool) *GardenService {
+type GardenService struct {
+	db DB
+}
+
+func NewGardenService(db DB) *GardenService {
 	return &GardenService{db: db}
 }
 

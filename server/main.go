@@ -46,7 +46,10 @@ func main() {
 	}
 
 	// Initialize authentication (Zitadel JWT validation with JWKS caching)
-	authInterceptor, err := auth.NewAuthInterceptor(ctx, zitadelDomain, zitadelClientID, zitadelEnv)
+	authCfg := auth.InterceptorConfig{
+		HubServiceAccountID: os.Getenv("HUB_SERVICE_ACCOUNT_ID"),
+	}
+	authInterceptor, err := auth.NewAuthInterceptor(ctx, zitadelDomain, zitadelClientID, zitadelEnv, authCfg)
 	if err != nil {
 		log.Fatalf("Failed to initialize authentication: %v", err)
 	}
