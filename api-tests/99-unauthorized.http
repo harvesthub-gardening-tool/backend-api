@@ -1,0 +1,56 @@
+###
+# No Authorization Header
+# Expected: 401 Unauthenticated - "missing authorization header"
+POST {{API_URL}}/garden.v1.GardenService/GetSummary HTTP/1.1
+Content-Type: application/json
+
+{}
+
+###
+# Invalid Token
+# Expected: 401 Unauthenticated - token validation failed
+POST {{API_URL}}/garden.v1.GardenService/GetSummary HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer invalid_token_here
+
+{}
+
+###
+# Malformed Bearer Token
+# Expected: 401 Unauthenticated
+POST {{API_URL}}/garden.v1.GardenService/GetSummary HTTP/1.1
+Content-Type: application/json
+Authorization: NotBearer xyz123
+
+{}
+
+###
+# User Trying to Insert (should fail - permission denied)
+# Expected: 403 Permission Denied - "only hub can insert data"
+# Note: This requires a VALID user token (not service account)
+POST {{API_URL}}/garden.v1.GardenService/InsertSensorData HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer {{USER_TOKEN}}
+
+{
+  "node_id": "sensor-unauthorized",
+  "temperature": 99.9,
+  "humidity": 99.9,
+  "soil_moisture": 99.9
+}
+
+###
+# Wrong Hub Service Account ID (if HUB_SERVICE_ACCOUNT_ID is set)
+# Expected: 403 Permission Denied - "unauthorized hub"
+# Note: This only works if you set HUB_SERVICE_ACCOUNT_ID env var
+#       and use a service account token with different ID
+POST {{API_URL}}/garden.v1.GardenService/InsertSensorData HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer {{HUB_TOKEN}}
+
+{
+  "node_id": "sensor-01",
+  "temperature": 20.0,
+  "humidity": 60.0,
+  "soil_moisture": 40.0
+}

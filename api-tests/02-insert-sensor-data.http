@@ -1,0 +1,61 @@
+###
+
+# Insert Sensor Data - Basic
+# Requires: Service account token (Hub)
+# Authorization: Only service accounts (no username in JWT)
+POST {{API_URL}}/garden.v1.GardenService/InsertSensorData HTTP/1.1
+Authorization: Bearer {{HUB_TOKEN}}
+Content-Type: application/json
+
+{
+  "node_id": "sensor-01",
+  "temperature": 22.5,
+  "humidity": 65.0,
+  "soil_moisture": 45.0,
+  "timestamp": 1698765432000
+}
+
+###
+
+# Insert Sensor Data - Without Timestamp (defaults to now)
+POST {{API_URL}}/garden.v1.GardenService/InsertSensorData HTTP/1.1
+Authorization: Bearer {{HUB_TOKEN}}
+Content-Type: application/json
+
+{
+  "node_id": "sensor-02",
+  "temperature": 18.0,
+  "humidity": 70.0,
+  "soil_moisture": 50.0,
+  "timestamp": 0
+}
+
+###
+
+# Insert Sensor Data - Multiple nodes
+POST {{API_URL}}/garden.v1.GardenService/InsertSensorData HTTP/1.1
+Authorization: Bearer {{HUB_TOKEN}}
+Content-Type: application/json
+
+{
+  "node_id": "sensor-03",
+  "temperature": 25.3,
+  "humidity": 55.0,
+  "soil_moisture": 60.0,
+  "timestamp": 1698765500000
+}
+
+###
+
+# Insert with User Token (should fail - permission denied)
+# This tests that only service accounts can insert data
+POST {{API_URL}}/garden.v1.GardenService/InsertSensorData HTTP/1.1
+Authorization: Bearer {{USER_TOKEN}}
+Content-Type: application/json
+
+{
+  "node_id": "sensor-99",
+  "temperature": 20.0,
+  "humidity": 60.0,
+  "soil_moisture": 40.0
+}
