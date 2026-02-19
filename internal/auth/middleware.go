@@ -51,7 +51,8 @@ func (z *zitadelValidator) Validate(ctx context.Context, authHeader string) (*Au
 func NewAuthInterceptor(ctx context.Context, zitadelDomain, clientID, zitadelEnv string, cfg InterceptorConfig) (connect.UnaryInterceptorFunc, error) {
 	var zitadelOpts []zitadel.Option
 	if zitadelEnv == "LOCAL" {
-		zitadelOpts = append(zitadelOpts, zitadel.WithInsecure("8085"))
+		// WithInsecure with empty port for HTTP (port already in domain)
+		zitadelOpts = append(zitadelOpts, zitadel.WithInsecure(""))
 	}
 
 	authz, err := authorization.New(

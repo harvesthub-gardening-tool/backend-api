@@ -23,7 +23,7 @@ func main() {
 	// Database connection
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
-		dbURL = "postgres://user:password@localhost:5432/garden_db?sslmode=disable"
+		dbURL = "postgres://user:password@db/garden_db?sslmode=disable"
 	}
 
 	db, err := pgxpool.New(ctx, dbURL)
@@ -36,7 +36,9 @@ func main() {
 	zitadelDomain := os.Getenv("ZITADEL_DOMAIN")
 	zitadelEnv := "PROD"
 	if zitadelDomain == "" {
-		zitadelDomain = "localhost"
+		// Default for Docker Compose: use host network via host.docker.internal
+		// This allows API to reach Zitadel with correct Host header (localhost)
+		zitadelDomain = "localhost:8085"
 		zitadelEnv = "LOCAL"
 	}
 
