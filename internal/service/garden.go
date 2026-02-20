@@ -9,7 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	gardenv1 "github.com/harvesthub-gardening-tool/protos-go/garden/v1"
-	"harvest-hub/api/internal/auth"
+	authctx "harvest-hub/api/internal/auth/context"
 )
 
 // DB abstracts database operations for testability.
@@ -34,8 +34,8 @@ func (s *GardenService) InsertSensorData(
 
 	// Get the authenticated user/service account from context
 	// This is what you wanted - user info is in the context!
-	userID := auth.GetUserID(ctx)
-	isServiceAccount := auth.IsServiceAccount(ctx)
+	userID := authctx.GetUserID(ctx)
+	isServiceAccount := authctx.IsServiceAccount(ctx)
 
 	// Log who's inserting data
 	fmt.Printf("Insert from: userID=%s, isServiceAccount=%v\n", userID, isServiceAccount)
@@ -75,8 +75,8 @@ func (s *GardenService) GetSummary(
 	msg := req.Msg
 
 	// Get the authenticated user from context
-	userID := auth.GetUserID(ctx)
-	username := auth.GetUsername(ctx)
+	userID := authctx.GetUserID(ctx)
+	username := authctx.GetUsername(ctx)
 
 	// Log who's reading data
 	fmt.Printf("GetSummary from: userID=%s, username=%s\n", userID, username)

@@ -3,73 +3,18 @@ package auth
 import (
 	"context"
 	"errors"
-	"net/http"
+	"strings"
 
 	"connectrpc.com/connect"
-	"github.com/zitadel/zitadel-go/v3/pkg/authorization"
-	"github.com/zitadel/zitadel-go/v3/pkg/authorization/oauth"
-	"github.com/zitadel/zitadel-go/v3/pkg/zitadel"
+	authctx "harvest-hub/api/internal/auth/context"
+	authjwt "harvest-hub/api/internal/auth/jwt"
 )
 
-type contextKey string
-
-const authContextKey contextKey = "auth_context"
-
-// AuthInfo holds the identity extracted from a validated token.
-type AuthInfo struct {
-	UserID   string
-	Username string
-}
-
-// TokenValidator validates an authorization header and returns identity info.
-type TokenValidator interface {
-	Validate(ctx context.Context, authHeader string) (*AuthInfo, error)
-}
-
-// InterceptorConfig holds authorization rules for the interceptor.
-type InterceptorConfig struct {
-	HubServiceAccountID string
-}
-
-// zitadelValidator adapts Zitadel's authorizer to our TokenValidator interface.
-type zitadelValidator struct {
-	authz *authorization.Authorizer[*oauth.IntrospectionContext]
-}
-
-func (z *zitadelValidator) Validate(ctx context.Context, authHeader string) (*AuthInfo, error) {
-	authCtx, err := z.authz.CheckAuthorization(ctx, authHeader)
-	if err != nil {
-		return nil, err
-	}
-	return &AuthInfo{
-		UserID:   authCtx.UserID(),
-		Username: authCtx.Username,
-	}, nil
-}
-
-// NewAuthInterceptor creates a Connect interceptor with Zitadel JWT validation.
-func NewAuthInterceptor(ctx context.Context, zitadelDomain, clientID, zitadelEnv string, cfg InterceptorConfig) (connect.UnaryInterceptorFunc, error) {
-	var zitadelOpts []zitadel.Option
-	if zitadelEnv == "LOCAL" {
-		// WithInsecure with empty port for HTTP (port already in domain)
-		zitadelOpts = append(zitadelOpts, zitadel.WithInsecure(""))
-	}
-
-	authz, err := authorization.New(
-		ctx,
-		zitadel.New(zitadelDomain, zitadelOpts...),
-		oauth.WithJWT(clientID, http.DefaultClient),
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	return ConnectInterceptor(&zitadelValidator{authz: authz}, cfg), nil
-}
-
-// ConnectInterceptor creates a Connect unary interceptor that validates tokens
-// and enforces per-RPC authorization rules.
-func ConnectInterceptor(validator TokenValidator, cfg InterceptorConfig) connect.UnaryInterceptorFunc {
+// NewJWTAuthInterceptor returns a Connect unary interceptor that validates RS256
+// JWT tokens and enforces per-RPC authorization rules:
+//   - /garden.v1.GardenService/InsertSensorData — service accounts (Hub devices) only
+//   - All other endpoints — any valid token (user or service account)
+func NewJWTAuthInterceptor(jwtManager *authjwt.JWTManager) connect.UnaryInterceptorFunc {
 	return func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
 			authHeader := req.Header().Get("Authorization")
@@ -77,53 +22,43 @@ func ConnectInterceptor(validator TokenValidator, cfg InterceptorConfig) connect
 				return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing authorization header"))
 			}
 
-			info, err := validator.Validate(ctx, authHeader)
+			token, err := extractBearerToken(authHeader)
 			if err != nil {
 				return nil, connect.NewError(connect.CodeUnauthenticated, err)
 			}
 
-			// Authorization: only Hub service account can insert data.
+			claims, err := jwtManager.ValidateToken(token)
+			if err != nil {
+				return nil, connect.NewError(connect.CodeUnauthenticated, err)
+			}
+
+			info := &authctx.AuthInfo{
+				UserID:   claims.UserID,
+				Username: claims.Username,
+			}
+
+			// Only service accounts (Hub devices) may insert sensor data.
 			if req.Spec().Procedure == "/garden.v1.GardenService/InsertSensorData" {
 				if info.Username != "" {
 					return nil, connect.NewError(connect.CodePermissionDenied, errors.New("only hub can insert data"))
 				}
-				if cfg.HubServiceAccountID != "" && info.UserID != cfg.HubServiceAccountID {
-					return nil, connect.NewError(connect.CodePermissionDenied, errors.New("unauthorized hub"))
-				}
 			}
 
-			ctx = context.WithValue(ctx, authContextKey, info)
+			ctx = authctx.SetAuthInfo(ctx, info)
 			return next(ctx, req)
 		}
 	}
 }
 
-// GetUserID extracts user ID from context.
-func GetUserID(ctx context.Context) string {
-	if info, ok := ctx.Value(authContextKey).(*AuthInfo); ok {
-		return info.UserID
+// extractBearerToken parses a "Bearer <token>" Authorization header.
+func extractBearerToken(authHeader string) (string, error) {
+	const prefix = "Bearer "
+	if !strings.HasPrefix(authHeader, prefix) {
+		return "", errors.New("authorization header must start with 'Bearer '")
 	}
-	return ""
-}
-
-// GetUsername extracts username from context.
-func GetUsername(ctx context.Context) string {
-	if info, ok := ctx.Value(authContextKey).(*AuthInfo); ok {
-		return info.Username
+	token := strings.TrimSpace(strings.TrimPrefix(authHeader, prefix))
+	if token == "" {
+		return "", errors.New("bearer token is empty")
 	}
-	return ""
-}
-
-// GetAuthInfo extracts full auth info from context.
-func GetAuthInfo(ctx context.Context) (*AuthInfo, bool) {
-	info, ok := ctx.Value(authContextKey).(*AuthInfo)
-	return info, ok
-}
-
-// IsServiceAccount checks if the authenticated entity is a service account.
-func IsServiceAccount(ctx context.Context) bool {
-	if info, ok := ctx.Value(authContextKey).(*AuthInfo); ok {
-		return info.Username == ""
-	}
-	return false
+	return token, nil
 }

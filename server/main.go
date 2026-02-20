@@ -12,8 +12,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 
 	"harvest-hub/api/internal/auth"
+	authjwt "harvest-hub/api/internal/auth/jwt"
 	"harvest-hub/api/internal/service"
 )
 
@@ -23,65 +26,107 @@ func main() {
 	// Database connection
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
-		dbURL = "postgres://user:password@db/garden_db?sslmode=disable"
+		dbURL = "postgres://postgres:postgres@db:5432/garden_db?sslmode=disable"
 	}
 
-	db, err := pgxpool.New(ctx, dbURL)
+	// pgxpool for GardenService (TimescaleDB queries)
+	pgxDB, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
 		log.Fatalf("Unable to connect to database: %v", err)
 	}
-	defer db.Close()
+	defer pgxDB.Close()
 
-	// Zitadel configuration
-	zitadelDomain := os.Getenv("ZITADEL_DOMAIN")
-	zitadelEnv := "PROD"
-	if zitadelDomain == "" {
-		// Default for Docker Compose: use host network via host.docker.internal
-		// This allows API to reach Zitadel with correct Host header (localhost)
-		zitadelDomain = "localhost:8085"
-		zitadelEnv = "LOCAL"
-	}
-
-	zitadelClientID := os.Getenv("ZITADEL_CLIENT_ID")
-	if zitadelClientID == "" {
-		log.Fatal("❌ ZITADEL_CLIENT_ID is required")
-	}
-
-	// Initialize authentication (Zitadel JWT validation with JWKS caching)
-	authCfg := auth.InterceptorConfig{
-		HubServiceAccountID: os.Getenv("HUB_SERVICE_ACCOUNT_ID"),
-	}
-	authInterceptor, err := auth.NewAuthInterceptor(ctx, zitadelDomain, zitadelClientID, zitadelEnv, authCfg)
+	// GORM for AuthService (user/token management)
+	gormDB, err := gorm.Open(postgres.Open(dbURL), &gorm.Config{})
 	if err != nil {
-		log.Fatalf("Failed to initialize authentication: %v", err)
+		log.Fatalf("Failed to connect GORM: %v", err)
 	}
 
-	// Create service
-	gardenSvc := service.NewGardenService(db)
+	// Auto-migrate auth tables
+	if err := gormDB.AutoMigrate(&auth.User{}, &auth.HubToken{}); err != nil {
+		log.Fatalf("Failed to migrate auth tables: %v", err)
+	}
 
-	// Create mux and register service with Zitadel authentication
+	// Initialize JWT Manager (RSA 2048-bit keys with persistent storage)
+	// Keys are stored in .jwt_private.pem and .jwt_public.pem to prevent
+	// token invalidation on server restart (critical for 1-year hub tokens)
+	jwtKeyPath := os.Getenv("JWT_KEY_PATH")
+	if jwtKeyPath == "" {
+		jwtKeyPath = "."
+	}
+	jwtManager, err := authjwt.NewOrLoadJWTManager(jwtKeyPath)
+	if err != nil {
+		log.Fatalf("Failed to initialize JWT manager: %v", err)
+	}
+
+	// Initialize Auth Service (user registration and hub token management)
+	authService := auth.NewAuthService(gormDB, jwtManager)
+
+	// Create JWT auth interceptor (validates JWT tokens)
+	authInterceptor := auth.NewJWTAuthInterceptor(jwtManager)
+
+	// Create services
+	gardenSvc := service.NewGardenService(pgxDB)
+	authSvc := service.NewAuthService(authService)
+
+	// Create mux and register services
 	mux := http.NewServeMux()
 
-	path, handler := gardenv1connect.NewGardenServiceHandler(
+	// Register GardenService with authentication
+	gardenPath, gardenHandler := gardenv1connect.NewGardenServiceHandler(
 		gardenSvc,
 		connect.WithInterceptors(authInterceptor),
 	)
-	mux.Handle(path, handler)
+	mux.Handle(gardenPath, gardenHandler)
+
+	// Register AuthService endpoints (register/login do not require auth)
+	registerAuthEndpoints(mux, authSvc, authInterceptor)
 
 	// Add CORS middleware
 	corsHandler := cors(mux)
 
 	// Start server
 	addr := ":8080"
-	fmt.Printf("✅ Garden API listening on %s\n", addr)
-	fmt.Printf("🔐 Authentication: Zitadel JWT Validation (JWKS cached)\n")
-	fmt.Printf("   - Domain: %s\n", zitadelDomain)
-	fmt.Printf("   - Client ID: %s\n", zitadelClientID)
-	fmt.Printf("   - Performance: ~1ms validation\n")
+	fmt.Printf("Garden API listening on %s\n", addr)
+	fmt.Printf("Authentication: JWT with RSA-256\n")
+	fmt.Printf("  User tokens: 24h expiry\n")
+	fmt.Printf("  Hub tokens: 1y expiry\n")
 
 	if err := http.ListenAndServe(addr, h2c.NewHandler(corsHandler, &http2.Server{})); err != nil {
-		log.Fatalf("❌ Server failed: %v", err)
+		log.Fatalf("Server failed: %v", err)
 	}
+}
+
+// registerAuthEndpoints manually registers AuthService endpoints.
+// Register and Login do NOT require authentication.
+// CreateHubToken, ListHubTokens, and RevokeHubToken DO require authentication.
+func registerAuthEndpoints(mux *http.ServeMux, authSvc *service.AuthService, authInterceptor connect.UnaryInterceptorFunc) {
+	// Register and Login - NO auth required
+	mux.Handle("/auth.v1.AuthService/Register", connect.NewUnaryHandler(
+		"/auth.v1.AuthService/Register",
+		authSvc.Register,
+	))
+	mux.Handle("/auth.v1.AuthService/Login", connect.NewUnaryHandler(
+		"/auth.v1.AuthService/Login",
+		authSvc.Login,
+	))
+
+	// CreateHubToken, ListHubTokens, RevokeHubToken - Auth required
+	mux.Handle("/auth.v1.AuthService/CreateHubToken", connect.NewUnaryHandler(
+		"/auth.v1.AuthService/CreateHubToken",
+		authSvc.CreateHubToken,
+		connect.WithInterceptors(authInterceptor),
+	))
+	mux.Handle("/auth.v1.AuthService/ListHubTokens", connect.NewUnaryHandler(
+		"/auth.v1.AuthService/ListHubTokens",
+		authSvc.ListHubTokens,
+		connect.WithInterceptors(authInterceptor),
+	))
+	mux.Handle("/auth.v1.AuthService/RevokeHubToken", connect.NewUnaryHandler(
+		"/auth.v1.AuthService/RevokeHubToken",
+		authSvc.RevokeHubToken,
+		connect.WithInterceptors(authInterceptor),
+	))
 }
 
 func cors(h http.Handler) http.Handler {

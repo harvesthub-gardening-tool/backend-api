@@ -2,23 +2,58 @@ package auth_test
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"connectrpc.com/connect"
 
 	"harvest-hub/api/internal/auth"
+	authctx "harvest-hub/api/internal/auth/context"
+	authjwt "harvest-hub/api/internal/auth/jwt"
 )
 
-// mockValidator implements auth.TokenValidator for testing.
-type mockValidator struct {
-	info *auth.AuthInfo
-	err  error
+// testJWTHelper wraps JWTManager to provide test utilities.
+type testJWTHelper struct {
+	manager *authjwt.JWTManager
 }
 
-func (m *mockValidator) Validate(_ context.Context, _ string) (*auth.AuthInfo, error) {
-	return m.info, m.err
+func newTestJWTHelper(t *testing.T) *testJWTHelper {
+	t.Helper()
+	manager, err := authjwt.NewJWTManager()
+	if err != nil {
+		t.Fatalf("failed to create JWT manager: %v", err)
+	}
+	return &testJWTHelper{manager: manager}
+}
+
+func (h *testJWTHelper) generateUserToken(t *testing.T, userID, username string) string {
+	t.Helper()
+	token, err := h.manager.GenerateToken(userID, username, 1*time.Hour)
+	if err != nil {
+		t.Fatalf("failed to generate user token: %v", err)
+	}
+	return token
+}
+
+func (h *testJWTHelper) generateServiceAccountToken(t *testing.T, serviceAccountID string) string {
+	t.Helper()
+	token, err := h.manager.GenerateToken(serviceAccountID, "", 1*time.Hour)
+	if err != nil {
+		t.Fatalf("failed to generate service account token: %v", err)
+	}
+	return token
+}
+
+func (h *testJWTHelper) generateExpiredToken(t *testing.T, userID, username string) string {
+	t.Helper()
+	token, err := h.manager.GenerateToken(userID, username, 1*time.Nanosecond)
+	if err != nil {
+		t.Fatalf("failed to generate expired token: %v", err)
+	}
+	time.Sleep(10 * time.Millisecond)
+	return token
 }
 
 // fakeRequest builds a minimal connect.AnyRequest with the given procedure and headers.
@@ -44,7 +79,7 @@ func (r *stubRequest) Peer() connect.Peer {
 	return connect.Peer{}
 }
 
-// passthrough is the "next" handler that records it was called and returns the context.
+// callRecord records whether the next handler was called and captures context.
 type callRecord struct {
 	called bool
 	ctx    context.Context
@@ -59,10 +94,8 @@ func passthroughNext(rec *callRecord) connect.UnaryFunc {
 }
 
 func TestConnectInterceptor_MissingAuthHeader(t *testing.T) {
-	interceptor := auth.ConnectInterceptor(
-		&mockValidator{info: &auth.AuthInfo{UserID: "u1"}},
-		auth.InterceptorConfig{},
-	)
+	helper := newTestJWTHelper(t)
+	interceptor := auth.NewJWTAuthInterceptor(helper.manager)
 
 	handler := interceptor(passthroughNext(&callRecord{}))
 	req := fakeRequest("/garden.v1.GardenService/GetSummary", http.Header{})
@@ -77,13 +110,11 @@ func TestConnectInterceptor_MissingAuthHeader(t *testing.T) {
 }
 
 func TestConnectInterceptor_InvalidToken(t *testing.T) {
-	interceptor := auth.ConnectInterceptor(
-		&mockValidator{err: errors.New("bad token")},
-		auth.InterceptorConfig{},
-	)
+	helper := newTestJWTHelper(t)
+	interceptor := auth.NewJWTAuthInterceptor(helper.manager)
 
 	handler := interceptor(passthroughNext(&callRecord{}))
-	headers := http.Header{"Authorization": []string{"Bearer bad"}}
+	headers := http.Header{"Authorization": []string{"Bearer invalid_token_string"}}
 	req := fakeRequest("/garden.v1.GardenService/GetSummary", headers)
 
 	_, err := handler(context.Background(), req)
@@ -95,50 +126,100 @@ func TestConnectInterceptor_InvalidToken(t *testing.T) {
 	}
 }
 
+func TestConnectInterceptor_ExpiredToken(t *testing.T) {
+	helper := newTestJWTHelper(t)
+	interceptor := auth.NewJWTAuthInterceptor(helper.manager)
+
+	expiredToken := helper.generateExpiredToken(t, "user-1", "alice")
+	handler := interceptor(passthroughNext(&callRecord{}))
+	headers := http.Header{"Authorization": []string{fmt.Sprintf("Bearer %s", expiredToken)}}
+	req := fakeRequest("/garden.v1.GardenService/GetSummary", headers)
+
+	_, err := handler(context.Background(), req)
+	if err == nil {
+		t.Fatal("expected error for expired token, got nil")
+	}
+	if connect.CodeOf(err) != connect.CodeUnauthenticated {
+		t.Errorf("expected CodeUnauthenticated, got %v", connect.CodeOf(err))
+	}
+}
+
+func TestConnectInterceptor_MalformedBearerHeader(t *testing.T) {
+	tests := []struct {
+		name   string
+		header string
+	}{
+		{
+			name:   "missing Bearer prefix",
+			header: "NotBearer token",
+		},
+		{
+			name:   "empty token after Bearer",
+			header: "Bearer ",
+		},
+		{
+			name:   "Bearer with only whitespace",
+			header: "Bearer   ",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			helper := newTestJWTHelper(t)
+			interceptor := auth.NewJWTAuthInterceptor(helper.manager)
+
+			handler := interceptor(passthroughNext(&callRecord{}))
+			headers := http.Header{"Authorization": []string{tt.header}}
+			req := fakeRequest("/garden.v1.GardenService/GetSummary", headers)
+
+			_, err := handler(context.Background(), req)
+			if err == nil {
+				t.Fatal("expected error for malformed bearer header, got nil")
+			}
+			if connect.CodeOf(err) != connect.CodeUnauthenticated {
+				t.Errorf("expected CodeUnauthenticated, got %v", connect.CodeOf(err))
+			}
+		})
+	}
+}
+
 func TestConnectInterceptor_InsertSensorData_Authorization(t *testing.T) {
 	tests := []struct {
 		name     string
-		info     *auth.AuthInfo
-		cfg      auth.InterceptorConfig
+		userID   string
+		username string
 		wantCode connect.Code
 		wantPass bool
 	}{
 		{
 			name:     "service account allowed",
-			info:     &auth.AuthInfo{UserID: "hub-1", Username: ""},
-			cfg:      auth.InterceptorConfig{},
+			userID:   "hub-1",
+			username: "",
 			wantPass: true,
-		},
-		{
-			name:     "service account with matching hub ID",
-			info:     &auth.AuthInfo{UserID: "hub-1", Username: ""},
-			cfg:      auth.InterceptorConfig{HubServiceAccountID: "hub-1"},
-			wantPass: true,
-		},
-		{
-			name:     "service account with wrong hub ID",
-			info:     &auth.AuthInfo{UserID: "hub-2", Username: ""},
-			cfg:      auth.InterceptorConfig{HubServiceAccountID: "hub-1"},
-			wantCode: connect.CodePermissionDenied,
 		},
 		{
 			name:     "user rejected from insert",
-			info:     &auth.AuthInfo{UserID: "user-1", Username: "alice"},
-			cfg:      auth.InterceptorConfig{},
+			userID:   "user-1",
+			username: "alice",
 			wantCode: connect.CodePermissionDenied,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			interceptor := auth.ConnectInterceptor(
-				&mockValidator{info: tt.info},
-				tt.cfg,
-			)
+			helper := newTestJWTHelper(t)
+			interceptor := auth.NewJWTAuthInterceptor(helper.manager)
+
+			var token string
+			if tt.username == "" {
+				token = helper.generateServiceAccountToken(t, tt.userID)
+			} else {
+				token = helper.generateUserToken(t, tt.userID, tt.username)
+			}
 
 			rec := &callRecord{}
 			handler := interceptor(passthroughNext(rec))
-			headers := http.Header{"Authorization": []string{"Bearer valid"}}
+			headers := http.Header{"Authorization": []string{fmt.Sprintf("Bearer %s", token)}}
 			req := fakeRequest("/garden.v1.GardenService/InsertSensorData", headers)
 
 			_, err := handler(context.Background(), req)
@@ -167,29 +248,37 @@ func TestConnectInterceptor_InsertSensorData_Authorization(t *testing.T) {
 
 func TestConnectInterceptor_GetSummary_AnyAuthenticatedUser(t *testing.T) {
 	tests := []struct {
-		name string
-		info *auth.AuthInfo
+		name     string
+		userID   string
+		username string
 	}{
 		{
-			name: "regular user",
-			info: &auth.AuthInfo{UserID: "user-1", Username: "alice"},
+			name:     "regular user",
+			userID:   "user-1",
+			username: "alice",
 		},
 		{
-			name: "service account",
-			info: &auth.AuthInfo{UserID: "hub-1", Username: ""},
+			name:     "service account",
+			userID:   "hub-1",
+			username: "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			interceptor := auth.ConnectInterceptor(
-				&mockValidator{info: tt.info},
-				auth.InterceptorConfig{},
-			)
+			helper := newTestJWTHelper(t)
+			interceptor := auth.NewJWTAuthInterceptor(helper.manager)
+
+			var token string
+			if tt.username == "" {
+				token = helper.generateServiceAccountToken(t, tt.userID)
+			} else {
+				token = helper.generateUserToken(t, tt.userID, tt.username)
+			}
 
 			rec := &callRecord{}
 			handler := interceptor(passthroughNext(rec))
-			headers := http.Header{"Authorization": []string{"Bearer valid"}}
+			headers := http.Header{"Authorization": []string{fmt.Sprintf("Bearer %s", token)}}
 			req := fakeRequest("/garden.v1.GardenService/GetSummary", headers)
 
 			_, err := handler(context.Background(), req)
@@ -204,15 +293,14 @@ func TestConnectInterceptor_GetSummary_AnyAuthenticatedUser(t *testing.T) {
 }
 
 func TestConnectInterceptor_SetsAuthContext(t *testing.T) {
-	info := &auth.AuthInfo{UserID: "user-42", Username: "bob"}
-	interceptor := auth.ConnectInterceptor(
-		&mockValidator{info: info},
-		auth.InterceptorConfig{},
-	)
+	helper := newTestJWTHelper(t)
+	interceptor := auth.NewJWTAuthInterceptor(helper.manager)
+
+	token := helper.generateUserToken(t, "user-42", "bob")
 
 	rec := &callRecord{}
 	handler := interceptor(passthroughNext(rec))
-	headers := http.Header{"Authorization": []string{"Bearer valid"}}
+	headers := http.Header{"Authorization": []string{fmt.Sprintf("Bearer %s", token)}}
 	req := fakeRequest("/garden.v1.GardenService/GetSummary", headers)
 
 	_, err := handler(context.Background(), req)
@@ -220,14 +308,13 @@ func TestConnectInterceptor_SetsAuthContext(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Verify context accessors work with the context passed to next handler.
-	if got := auth.GetUserID(rec.ctx); got != "user-42" {
+	if got := authctx.GetUserID(rec.ctx); got != "user-42" {
 		t.Errorf("GetUserID() = %q, want %q", got, "user-42")
 	}
-	if got := auth.GetUsername(rec.ctx); got != "bob" {
+	if got := authctx.GetUsername(rec.ctx); got != "bob" {
 		t.Errorf("GetUsername() = %q, want %q", got, "bob")
 	}
-	if auth.IsServiceAccount(rec.ctx) {
+	if authctx.IsServiceAccount(rec.ctx) {
 		t.Error("IsServiceAccount() = true, want false for user with username")
 	}
 }
@@ -235,16 +322,16 @@ func TestConnectInterceptor_SetsAuthContext(t *testing.T) {
 func TestContextAccessors_NoAuth(t *testing.T) {
 	ctx := context.Background()
 
-	if got := auth.GetUserID(ctx); got != "" {
+	if got := authctx.GetUserID(ctx); got != "" {
 		t.Errorf("GetUserID() = %q, want empty", got)
 	}
-	if got := auth.GetUsername(ctx); got != "" {
+	if got := authctx.GetUsername(ctx); got != "" {
 		t.Errorf("GetUsername() = %q, want empty", got)
 	}
-	if _, ok := auth.GetAuthInfo(ctx); ok {
+	if _, ok := authctx.GetAuthInfo(ctx); ok {
 		t.Error("GetAuthInfo() ok = true, want false")
 	}
-	if auth.IsServiceAccount(ctx) {
+	if authctx.IsServiceAccount(ctx) {
 		t.Error("IsServiceAccount() = true, want false")
 	}
 }
