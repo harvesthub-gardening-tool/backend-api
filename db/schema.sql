@@ -1,6 +1,10 @@
--- TimescaleDB schema for Harvest Hub
+-- TimescaleDB-specific schema for Harvest Hub.
 -- Runs once on first container init (docker-entrypoint-initdb.d/).
--- auth_users and hub_tokens are intentionally absent: GORM AutoMigrate owns them.
+--
+-- Domain tables (auth_users, hub_tokens, hubs, sensor_nodes) are intentionally
+-- absent: GORM AutoMigrate in server/main.go owns their lifecycle.
+-- Only sensor_data requires manual setup because TimescaleDB hypertables
+-- cannot be created via GORM.
 
 CREATE EXTENSION IF NOT EXISTS timescaledb;
 

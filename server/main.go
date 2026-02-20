@@ -42,9 +42,15 @@ func main() {
 		log.Fatalf("Failed to connect GORM: %v", err)
 	}
 
-	// Auto-migrate auth tables
-	if err := gormDB.AutoMigrate(&auth.User{}, &auth.HubToken{}); err != nil {
-		log.Fatalf("Failed to migrate auth tables: %v", err)
+	// Auto-migrate all domain tables.
+	// Order matters: User first (HubToken, Hub reference it), Hub before SensorNode.
+	if err := gormDB.AutoMigrate(
+		&auth.User{},
+		&auth.HubToken{},
+		&auth.Hub{},
+		&auth.SensorNode{},
+	); err != nil {
+		log.Fatalf("Failed to auto-migrate: %v", err)
 	}
 
 	// Initialize JWT Manager (RSA 2048-bit keys with persistent storage)
