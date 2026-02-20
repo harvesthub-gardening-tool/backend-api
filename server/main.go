@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -9,7 +8,6 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/harvesthub-gardening-tool/protos-go/garden/v1/gardenv1connect"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 	"gorm.io/driver/postgres"
@@ -21,25 +19,15 @@ import (
 )
 
 func main() {
-	ctx := context.Background()
-
-	// Database connection
+	// Database connection (single GORM handle for all services)
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
 		dbURL = "postgres://postgres:postgres@db:5432/garden_db?sslmode=disable"
 	}
 
-	// pgxpool for GardenService (TimescaleDB queries)
-	pgxDB, err := pgxpool.New(ctx, dbURL)
-	if err != nil {
-		log.Fatalf("Unable to connect to database: %v", err)
-	}
-	defer pgxDB.Close()
-
-	// GORM for AuthService (user/token management)
 	gormDB, err := gorm.Open(postgres.Open(dbURL), &gorm.Config{})
 	if err != nil {
-		log.Fatalf("Failed to connect GORM: %v", err)
+		log.Fatalf("Failed to connect to database: %v", err)
 	}
 
 	// Auto-migrate all domain tables.
@@ -71,8 +59,8 @@ func main() {
 	// Create JWT auth interceptor (validates JWT tokens)
 	authInterceptor := auth.NewJWTAuthInterceptor(jwtManager)
 
-	// Create services
-	gardenSvc := service.NewGardenService(pgxDB)
+	// Create services (both share the same GORM handle)
+	gardenSvc := service.NewGardenService(gormDB)
 	authSvc := service.NewAuthService(authService)
 
 	// Create mux and register services
