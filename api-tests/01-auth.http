@@ -1,0 +1,138 @@
+### Variables
+@API_URL = http://localhost:8080
+
+###
+# Register New User
+# Creates a new user account with email and password
+# Returns: JWT token for the new user
+POST {{API_URL}}/auth.v1.AuthService/Register
+Content-Type: application/json
+
+{
+  "email": "test@example.com",
+  "password": "SecurePass123!"
+}
+
+###
+# Register Another User (for testing multiple accounts)
+POST {{API_URL}}/auth.v1.AuthService/Register
+Content-Type: application/json
+
+{
+  "email": "alice@example.com",
+  "password": "AlicePass456!"
+}
+
+###
+# Login
+# Authenticates an existing user
+# Returns: JWT token for authenticated user
+POST {{API_URL}}/auth.v1.AuthService/Login
+Content-Type: application/json
+
+{
+  "email": "test@example.com",
+  "password": "SecurePass123!"
+}
+
+###
+# Login with Wrong Password (should fail)
+POST {{API_URL}}/auth.v1.AuthService/Login
+Content-Type: application/json
+
+{
+  "email": "test@example.com",
+  "password": "WrongPassword!"
+}
+
+###
+# Login with Non-existent User (should fail)
+POST {{API_URL}}/auth.v1.AuthService/Login
+Content-Type: application/json
+
+{
+  "email": "nonexistent@example.com",
+  "password": "SomePassword123!"
+}
+
+###
+# Create Hub Token
+# Generates a service account token for a hub device
+# Requires: Valid user JWT token from Register or Login
+# Replace YOUR_USER_TOKEN_HERE with the token from Register/Login response
+POST {{API_URL}}/auth.v1.AuthService/CreateHubToken
+Authorization: Bearer YOUR_USER_TOKEN_HERE
+Content-Type: application/json
+
+{
+  "hub_name": "garden-hub-1"
+}
+
+###
+# Create Another Hub Token
+# Multiple hubs per user are supported
+POST {{API_URL}}/auth.v1.AuthService/CreateHubToken
+Authorization: Bearer YOUR_USER_TOKEN_HERE
+Content-Type: application/json
+
+{
+  "hub_name": "greenhouse-hub"
+}
+
+###
+# Create Hub Token Without Auth (should fail)
+POST {{API_URL}}/auth.v1.AuthService/CreateHubToken
+Content-Type: application/json
+
+{
+  "hub_name": "unauthorized-hub"
+}
+
+###
+# List Hub Tokens
+# Shows all hub tokens for the authenticated user
+# Requires: Valid user JWT token
+POST {{API_URL}}/auth.v1.AuthService/ListHubTokens
+Authorization: Bearer YOUR_USER_TOKEN_HERE
+Content-Type: application/json
+
+{}
+
+###
+# List Hub Tokens Without Auth (should fail)
+POST {{API_URL}}/auth.v1.AuthService/ListHubTokens
+Content-Type: application/json
+
+{}
+
+###
+# Revoke Hub Token
+# Revokes a specific hub token by ID
+# Requires: Valid user JWT token
+# Replace token_id with actual ID from ListHubTokens response
+POST {{API_URL}}/auth.v1.AuthService/RevokeHubToken
+Authorization: Bearer YOUR_USER_TOKEN_HERE
+Content-Type: application/json
+
+{
+  "token_id": "1"
+}
+
+###
+# Revoke Non-existent Token (should fail)
+POST {{API_URL}}/auth.v1.AuthService/RevokeHubToken
+Authorization: Bearer YOUR_USER_TOKEN_HERE
+Content-Type: application/json
+
+{
+  "token_id": "99999"
+}
+
+###
+# Revoke Without Auth (should fail)
+POST {{API_URL}}/auth.v1.AuthService/RevokeHubToken
+Content-Type: application/json
+
+{
+  "token_id": "1"
+}

@@ -4,56 +4,84 @@ HTTP request files for testing the Garden API with [rest.nvim](https://github.co
 
 ## Setup
 
-### Automated (Recommended)
-
-1. **Start Zitadel and database:**
-   ```bash
-   docker-compose up -d db zitadel
-   ```
-
-2. **Run bootstrap script** (creates everything automatically):
-   ```bash
-   ./scripts/bootstrap-zitadel.sh
-   ```
-
-   This creates project, service account, and writes `.env` with all tokens.
-
-3. **Start the API:**
-   ```bash
-   docker-compose up -d api
-   ```
-
-4. **Run tests with rest.nvim:**
-   - Open any `.http` file in `api-tests/`
-   - Position cursor on a request
-   - Run `:lua require('rest-nvim').run()`
-
-### Manual (if bootstrap fails)
-
 1. **Start the stack:**
    ```bash
    docker-compose up
    ```
 
-2. **Get tokens from Zitadel:**
-   - Open http://localhost:8085/ui/console
-   - Login as `root@harvesthub.localhost / RootPassword1!`
-   - Create project → API application → copy Client ID
-   - Create service account → generate PAT
+2. **Register a new user:**
+   ```bash
+   POST /auth.v1.AuthService/Register
+   {"email": "user@example.com", "password": "yourpassword"}
+   ```
+   Returns `user_id` and JWT token.
 
-3. **Set environment variables:**
-   Create `.env` file in project root and set `ZITADEL_CLIENT_ID`, then restart API
+3. **Or login with existing user:**
+   ```bash
+   POST /auth.v1.AuthService/Login
+   {"email": "user@example.com", "password": "yourpassword"}
+   ```
+   Returns JWT token.
+
+4. **Use token in requests:**
+   Add header: `Authorization: Bearer <token>`
+
+5. **Run tests with rest.nvim:**
+   - Open any `.http` file in `api-tests/`
+   - Position cursor on a request
+   - Run `:lua require('rest-nvim').run()`
+
+## Authentication
+
+The API uses JWT-based authentication with bcrypt password hashing.
+
+### Register a New User
+
+```http
+POST /auth.v1.AuthService/Register
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "password": "yourpassword"
+}
+```
+
+Response includes `user_id` and JWT `token`.
+
+### Login
+
+```http
+POST /auth.v1.AuthService/Login
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "password": "yourpassword"
+}
+```
+
+Response includes JWT `token`.
+
+### Use Token in Requests
+
+Add the JWT token to the `Authorization` header:
+
+```http
+Authorization: Bearer <token>
+```
 
 ## Files
 
+- `01-auth.http` - Register, login, and hub token management
 - `01-health.http` - Basic connectivity check
-- `02-insert-sensor-data.http` - Hub writes sensor data (requires service account token)
-- `03-get-summary.http` - Query aggregated data (requires any valid token)
+- `02-insert-sensor-data.http` - Hub writes sensor data (requires hub token)
+- `03-get-summary.http` - Query aggregated data (requires user token)
 - `99-unauthorized.http` - Test auth failures
 
 ## Notes
 
-- All endpoints require authentication via `Authorization: Bearer <token>`
-- `InsertSensorData` only accepts service account tokens (no username in JWT)
-- `GetSummary` accepts both user and service account tokens
-- Tokens are JWTs validated against Zitadel at `localhost:8085`
+- All garden endpoints require authentication via `Authorization: Bearer <token>`
+- User tokens are generated via Register/Login endpoints
+- Hub tokens are managed separately for IoT device authentication
+- Tokens are RS256 JWTs signed with server's RSA key pair
