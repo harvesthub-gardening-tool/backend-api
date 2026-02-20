@@ -2,17 +2,14 @@
 @API_URL = http://localhost:8080
 
 ###
-# SETUP INSTRUCTIONS:
-# 1. Run 01-auth.http to register/login and get a USER_TOKEN
-# 2. Use that USER_TOKEN to call CreateHubToken in 01-auth.http
-# 3. Copy the hub JWT token from the response
-# 4. Replace YOUR_HUB_TOKEN_HERE below with the actual hub token
+# SETUP: Run Register/Login then CreateHubToken in 01-auth.http first.
+# HUB_TOKEN and USER_TOKEN are captured automatically from those responses.
 
 ###
 # Insert Sensor Data - Basic
 # Requires: Hub service account token (empty username in JWT)
 POST {{API_URL}}/garden.v1.GardenService/InsertSensorData HTTP/1.1
-Authorization: Bearer YOUR_HUB_TOKEN_HERE
+Authorization: Bearer {{HUB_TOKEN}}
 Content-Type: application/json
 
 {
@@ -26,7 +23,7 @@ Content-Type: application/json
 ###
 # Insert Sensor Data - Without Timestamp (defaults to now)
 POST {{API_URL}}/garden.v1.GardenService/InsertSensorData HTTP/1.1
-Authorization: Bearer YOUR_HUB_TOKEN_HERE
+Authorization: Bearer {{HUB_TOKEN}}
 Content-Type: application/json
 
 {
@@ -40,7 +37,7 @@ Content-Type: application/json
 ###
 # Insert Sensor Data - Multiple nodes
 POST {{API_URL}}/garden.v1.GardenService/InsertSensorData HTTP/1.1
-Authorization: Bearer YOUR_HUB_TOKEN_HERE
+Authorization: Bearer {{HUB_TOKEN}}
 Content-Type: application/json
 
 {
@@ -54,9 +51,8 @@ Content-Type: application/json
 ###
 # Insert with User Token (should fail - permission denied)
 # Only hub tokens (service accounts) can insert sensor data
-# Get USER_TOKEN from Register or Login in 01-auth.http
 POST {{API_URL}}/garden.v1.GardenService/InsertSensorData HTTP/1.1
-Authorization: Bearer YOUR_USER_TOKEN_HERE
+Authorization: Bearer {{USER_TOKEN}}
 Content-Type: application/json
 
 {

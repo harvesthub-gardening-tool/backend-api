@@ -4,7 +4,7 @@
 ###
 # Register New User
 # Creates a new user account with email and password
-# Returns: JWT token for the new user
+# Captures USER_TOKEN automatically for use in subsequent requests
 POST {{API_URL}}/auth.v1.AuthService/Register
 Content-Type: application/json
 
@@ -12,6 +12,14 @@ Content-Type: application/json
   "email": "test@example.com",
   "password": "SecurePass123!"
 }
+
+> {%
+# @lang=lua
+local json = vim.json.decode(response.body)
+if json and json.token then
+  client.global.set("USER_TOKEN", json.token)
+end
+%}
 
 ###
 # Register Another User (for testing multiple accounts)
@@ -26,7 +34,7 @@ Content-Type: application/json
 ###
 # Login
 # Authenticates an existing user
-# Returns: JWT token for authenticated user
+# Captures USER_TOKEN automatically for use in subsequent requests
 POST {{API_URL}}/auth.v1.AuthService/Login
 Content-Type: application/json
 
@@ -34,6 +42,14 @@ Content-Type: application/json
   "email": "test@example.com",
   "password": "SecurePass123!"
 }
+
+> {%
+# @lang=lua
+local json = vim.json.decode(response.body)
+if json and json.token then
+  client.global.set("USER_TOKEN", json.token)
+end
+%}
 
 ###
 # Login with Wrong Password (should fail)
@@ -58,21 +74,28 @@ Content-Type: application/json
 ###
 # Create Hub Token
 # Generates a service account token for a hub device
-# Requires: Valid user JWT token from Register or Login
-# Replace YOUR_USER_TOKEN_HERE with the token from Register/Login response
+# Captures HUB_TOKEN automatically for use in insert-sensor-data requests
 POST {{API_URL}}/auth.v1.AuthService/CreateHubToken
-Authorization: Bearer YOUR_USER_TOKEN_HERE
+Authorization: Bearer {{USER_TOKEN}}
 Content-Type: application/json
 
 {
   "hub_name": "garden-hub-1"
 }
 
+> {%
+# @lang=lua
+local json = vim.json.decode(response.body)
+if json and json.token then
+  client.global.set("HUB_TOKEN", json.token)
+end
+%}
+
 ###
 # Create Another Hub Token
 # Multiple hubs per user are supported
 POST {{API_URL}}/auth.v1.AuthService/CreateHubToken
-Authorization: Bearer YOUR_USER_TOKEN_HERE
+Authorization: Bearer {{USER_TOKEN}}
 Content-Type: application/json
 
 {
@@ -91,9 +114,8 @@ Content-Type: application/json
 ###
 # List Hub Tokens
 # Shows all hub tokens for the authenticated user
-# Requires: Valid user JWT token
 POST {{API_URL}}/auth.v1.AuthService/ListHubTokens
-Authorization: Bearer YOUR_USER_TOKEN_HERE
+Authorization: Bearer {{USER_TOKEN}}
 Content-Type: application/json
 
 {}
@@ -107,11 +129,9 @@ Content-Type: application/json
 
 ###
 # Revoke Hub Token
-# Revokes a specific hub token by ID
-# Requires: Valid user JWT token
 # Replace token_id with actual ID from ListHubTokens response
 POST {{API_URL}}/auth.v1.AuthService/RevokeHubToken
-Authorization: Bearer YOUR_USER_TOKEN_HERE
+Authorization: Bearer {{USER_TOKEN}}
 Content-Type: application/json
 
 {
@@ -121,7 +141,7 @@ Content-Type: application/json
 ###
 # Revoke Non-existent Token (should fail)
 POST {{API_URL}}/auth.v1.AuthService/RevokeHubToken
-Authorization: Bearer YOUR_USER_TOKEN_HERE
+Authorization: Bearer {{USER_TOKEN}}
 Content-Type: application/json
 
 {
