@@ -6,17 +6,26 @@ import (
 	"strings"
 
 	"connectrpc.com/connect"
+	authv1connect "github.com/harvesthub-gardening-tool/protos-go/auth/v1/authv1connect"
 	authctx "harvest-hub/api/internal/auth/context"
 	authjwt "harvest-hub/api/internal/auth/jwt"
 )
 
 // NewJWTAuthInterceptor returns a Connect unary interceptor that validates RS256
 // JWT tokens and enforces per-RPC authorization rules:
+//   - /auth.v1.AuthService/Register, /auth.v1.AuthService/Login — public, no token required
 //   - /garden.v1.GardenService/InsertSensorData — service accounts (Hub devices) only
 //   - All other endpoints — any valid token (user or service account)
 func NewJWTAuthInterceptor(jwtManager *authjwt.JWTManager) connect.UnaryInterceptorFunc {
 	return func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+			// Public endpoints — no token required
+			switch req.Spec().Procedure {
+			case authv1connect.AuthServiceRegisterProcedure,
+				authv1connect.AuthServiceLoginProcedure:
+				return next(ctx, req)
+			}
+
 			authHeader := req.Header().Get("Authorization")
 			if authHeader == "" {
 				return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing authorization header"))

@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"connectrpc.com/connect"
+	authv1 "github.com/harvesthub-gardening-tool/protos-go/auth/v1"
 	"harvest-hub/api/internal/auth"
 	authctx "harvest-hub/api/internal/auth/context"
 )
@@ -23,13 +24,10 @@ func NewAuthService(authService *auth.AuthService) *AuthService {
 }
 
 // Register creates a new user account and returns a JWT token.
-// Returns:
-//   - user_id: The unique identifier for the created user
-//   - token: JWT token with 24-hour expiry for immediate login
 func (s *AuthService) Register(
 	ctx context.Context,
-	req *connect.Request[RegisterRequest],
-) (*connect.Response[RegisterResponse], error) {
+	req *connect.Request[authv1.RegisterRequest],
+) (*connect.Response[authv1.RegisterResponse], error) {
 	msg := req.Msg
 
 	userID, err := s.authService.RegisterUser(ctx, msg.Email, msg.Password)
@@ -43,25 +41,22 @@ func (s *AuthService) Register(
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("registration failed: %w", err))
 	}
 
-	// Generate JWT token for immediate login (user token with username)
 	token, err := s.authService.LoginUser(ctx, msg.Email, msg.Password)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to generate token: %w", err))
 	}
 
-	return connect.NewResponse(&RegisterResponse{
+	return connect.NewResponse(&authv1.RegisterResponse{
 		UserId: userID,
 		Token:  token,
 	}), nil
 }
 
 // Login validates user credentials and returns a JWT token.
-// Returns:
-//   - token: JWT token with 24-hour expiry
 func (s *AuthService) Login(
 	ctx context.Context,
-	req *connect.Request[LoginRequest],
-) (*connect.Response[LoginResponse], error) {
+	req *connect.Request[authv1.LoginRequest],
+) (*connect.Response[authv1.LoginResponse], error) {
 	msg := req.Msg
 
 	token, err := s.authService.LoginUser(ctx, msg.Email, msg.Password)
@@ -72,19 +67,16 @@ func (s *AuthService) Login(
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("login failed: %w", err))
 	}
 
-	return connect.NewResponse(&LoginResponse{
+	return connect.NewResponse(&authv1.LoginResponse{
 		Token: token,
 	}), nil
 }
 
 // CreateHubToken creates a new hub device token tied to the authenticated user.
-// Requires authentication.
-// Returns:
-//   - token: JWT service account token with 1-year expiry (shown only once)
 func (s *AuthService) CreateHubToken(
 	ctx context.Context,
-	req *connect.Request[CreateHubTokenRequest],
-) (*connect.Response[CreateHubTokenResponse], error) {
+	req *connect.Request[authv1.CreateHubTokenRequest],
+) (*connect.Response[authv1.CreateHubTokenResponse], error) {
 	userID := authctx.GetUserID(ctx)
 	if userID == "" {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("authentication required"))
@@ -100,19 +92,16 @@ func (s *AuthService) CreateHubToken(
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to create hub token: %w", err))
 	}
 
-	return connect.NewResponse(&CreateHubTokenResponse{
+	return connect.NewResponse(&authv1.CreateHubTokenResponse{
 		Token: token,
 	}), nil
 }
 
 // ListHubTokens returns all active hub tokens for the authenticated user.
-// Requires authentication. Excludes revoked tokens.
-// Returns:
-//   - tokens: Array of hub token metadata (id, hub_name, created_at, revoked)
 func (s *AuthService) ListHubTokens(
 	ctx context.Context,
-	req *connect.Request[ListHubTokensRequest],
-) (*connect.Response[ListHubTokensResponse], error) {
+	req *connect.Request[authv1.ListHubTokensRequest],
+) (*connect.Response[authv1.ListHubTokensResponse], error) {
 	userID := authctx.GetUserID(ctx)
 	if userID == "" {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("authentication required"))
@@ -123,9 +112,9 @@ func (s *AuthService) ListHubTokens(
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to list hub tokens: %w", err))
 	}
 
-	tokenInfos := make([]*HubTokenInfo, len(tokens))
+	tokenInfos := make([]*authv1.HubTokenInfo, len(tokens))
 	for i, token := range tokens {
-		tokenInfos[i] = &HubTokenInfo{
+		tokenInfos[i] = &authv1.HubTokenInfo{
 			Id:        token.ID,
 			HubName:   token.HubName,
 			CreatedAt: token.CreatedAt.UnixMilli(),
@@ -133,18 +122,16 @@ func (s *AuthService) ListHubTokens(
 		}
 	}
 
-	return connect.NewResponse(&ListHubTokensResponse{
+	return connect.NewResponse(&authv1.ListHubTokensResponse{
 		Tokens: tokenInfos,
 	}), nil
 }
 
 // RevokeHubToken marks a hub token as revoked.
-// Requires authentication. Revoked tokens remain in the database but are excluded from listings.
-// After revocation, the same hub name can be reused.
 func (s *AuthService) RevokeHubToken(
 	ctx context.Context,
-	req *connect.Request[RevokeHubTokenRequest],
-) (*connect.Response[RevokeHubTokenResponse], error) {
+	req *connect.Request[authv1.RevokeHubTokenRequest],
+) (*connect.Response[authv1.RevokeHubTokenResponse], error) {
 	userID := authctx.GetUserID(ctx)
 	if userID == "" {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("authentication required"))
@@ -160,5 +147,5 @@ func (s *AuthService) RevokeHubToken(
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to revoke hub token: %w", err))
 	}
 
-	return connect.NewResponse(&RevokeHubTokenResponse{}), nil
+	return connect.NewResponse(&authv1.RevokeHubTokenResponse{}), nil
 }

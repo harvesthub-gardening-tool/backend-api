@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"connectrpc.com/connect"
+	authv1connect "github.com/harvesthub-gardening-tool/protos-go/auth/v1/authv1connect"
 	"github.com/harvesthub-gardening-tool/protos-go/garden/v1/gardenv1connect"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -73,8 +74,12 @@ func main() {
 	)
 	mux.Handle(gardenPath, gardenHandler)
 
-	// Register AuthService endpoints (register/login do not require auth)
-	registerAuthEndpoints(mux, authSvc, authInterceptor)
+	// Register AuthService — interceptor skips auth for Register/Login internally
+	authPath, authHandler := authv1connect.NewAuthServiceHandler(
+		authSvc,
+		connect.WithInterceptors(authInterceptor),
+	)
+	mux.Handle(authPath, authHandler)
 
 	// Add CORS middleware
 	corsHandler := cors(mux)
@@ -89,38 +94,6 @@ func main() {
 	if err := http.ListenAndServe(addr, h2c.NewHandler(corsHandler, &http2.Server{})); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
-}
-
-// registerAuthEndpoints manually registers AuthService endpoints.
-// Register and Login do NOT require authentication.
-// CreateHubToken, ListHubTokens, and RevokeHubToken DO require authentication.
-func registerAuthEndpoints(mux *http.ServeMux, authSvc *service.AuthService, authInterceptor connect.UnaryInterceptorFunc) {
-	// Register and Login - NO auth required
-	mux.Handle("/auth.v1.AuthService/Register", connect.NewUnaryHandler(
-		"/auth.v1.AuthService/Register",
-		authSvc.Register,
-	))
-	mux.Handle("/auth.v1.AuthService/Login", connect.NewUnaryHandler(
-		"/auth.v1.AuthService/Login",
-		authSvc.Login,
-	))
-
-	// CreateHubToken, ListHubTokens, RevokeHubToken - Auth required
-	mux.Handle("/auth.v1.AuthService/CreateHubToken", connect.NewUnaryHandler(
-		"/auth.v1.AuthService/CreateHubToken",
-		authSvc.CreateHubToken,
-		connect.WithInterceptors(authInterceptor),
-	))
-	mux.Handle("/auth.v1.AuthService/ListHubTokens", connect.NewUnaryHandler(
-		"/auth.v1.AuthService/ListHubTokens",
-		authSvc.ListHubTokens,
-		connect.WithInterceptors(authInterceptor),
-	))
-	mux.Handle("/auth.v1.AuthService/RevokeHubToken", connect.NewUnaryHandler(
-		"/auth.v1.AuthService/RevokeHubToken",
-		authSvc.RevokeHubToken,
-		connect.WithInterceptors(authInterceptor),
-	))
 }
 
 func cors(h http.Handler) http.Handler {
