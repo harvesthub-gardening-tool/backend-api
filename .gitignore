@@ -12,6 +12,7 @@ worktrees/
 *.dylib
 *.test
 *.out
+gen
 
 # Environment
 .env
