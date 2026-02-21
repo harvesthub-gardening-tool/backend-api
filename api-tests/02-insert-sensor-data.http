@@ -13,11 +13,11 @@ Authorization: Bearer {{HUB_TOKEN}}
 Content-Type: application/json
 
 {
-  "node_id": "sensor-01",
-  "temperature": 22.5,
+  "node_id": "sensor-02",
+  "temperature": 2200.5,
   "humidity": 65.0,
   "soil_moisture": 45.0,
-  "timestamp": 1698765432000
+  "timestamp": 1771633100000
 }
 
 ###

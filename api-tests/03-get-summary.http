@@ -52,7 +52,7 @@ Content-Type: application/json
 Authorization: Bearer {{HUB_TOKEN}}
 
 {
-  "node_id": "sensor-01",
+  "node_id": "sensor-03",
   "hours": 24
 }
 
