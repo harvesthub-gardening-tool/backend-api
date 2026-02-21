@@ -1,0 +1,17 @@
+349576524539625475.json
+
+# Worktrees
+.worktrees/
+worktrees/
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Environment
+.env

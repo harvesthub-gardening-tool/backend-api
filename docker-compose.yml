@@ -1,35 +1,56 @@
 services:
-  api:
-    build: .
-    ports:
-      - "8080:8080"
-    environment:
-      - DATABASE_URL=postgres://user:password@db:5432/garden_db?sslmode=disable
-    depends_on:
-      - db
+    api:
+        build: .
+        ports:
+            - "8080:8080"
+        environment:
+            - DATABASE_URL=postgres://postgres:postgres@db:5432/garden_db?sslmode=disable
+        extra_hosts:
+            - "localhost:host-gateway"
+        depends_on:
+            db:
+                condition: service_healthy
+        networks:
+            - harvest-hub
 
-  db:
-    image: timescale/timescaledb:latest-pg14
-    environment:
-      POSTGRES_DB: garden_db
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
-    ports:
-      - "5432:5432"
-    volumes:
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-      - timescale_data:/var/lib/postgresql/data
+    db:
+        restart: unless-stopped
+        image: timescale/timescaledb:latest-pg17
+        environment:
+            PGUSER: postgres
+            POSTGRES_PASSWORD: postgres
+            POSTGRES_DB: garden_db
+        healthcheck:
+            test:
+                - CMD-SHELL
+                - pg_isready -d garden_db -U postgres
+            interval: 10s
+            timeout: 30s
+            retries: 5
+            start_period: 20s
+        ports:
+        - "5432:5432"
+        volumes:
+            - postgres_data:/var/lib/postgresql/data
+            - ./db:/docker-entrypoint-initdb.d
+        networks:
+            - harvest-hub
 
-  swagger-ui:
-    image: swaggerapi/swagger-ui
-    ports:
-      - "8081:8080"
-    environment:
-      - SWAGGER_JSON=/docs/api.swagger.json
-    volumes:
-      - ./gen/openapiv2:/docs
-    depends_on:
-      - api
+    swagger-ui:
+        image: swaggerapi/swagger-ui
+        ports:
+            - "8081:8080"
+        environment:
+            - SWAGGER_JSON=/docs/api.swagger.json
+        volumes:
+            - ./gen/openapiv2:/docs
+        depends_on:
+            - api
+        networks:
+            - harvest-hub
+
+networks:
+    harvest-hub:
 
 volumes:
-  timescale_data:
+    postgres_data:

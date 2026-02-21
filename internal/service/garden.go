@@ -6,16 +6,17 @@ import (
 	"time"
 
 	"connectrpc.com/connect"
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	gardenv1 "github.com/harvesthub-gardening-tool/protos-go/garden/v1"
+	"gorm.io/gorm"
+
+	authctx "harvest-hub/api/internal/auth/context"
 )
 
 type GardenService struct {
-	db *pgxpool.Pool
+	db *gorm.DB
 }
 
-func NewGardenService(db *pgxpool.Pool) *GardenService {
+func NewGardenService(db *gorm.DB) *GardenService {
 	return &GardenService{db: db}
 }
 
@@ -25,32 +26,36 @@ func (s *GardenService) InsertSensorData(
 ) (*connect.Response[gardenv1.InsertSensorDataResponse], error) {
 	msg := req.Msg
 
-	query := `
-INSERT INTO sensor_data (node_id, time, temperature, humidity, soil_moisture)
-VALUES ($1, $2, $3, $4, $5)
-`
+	userID := authctx.GetUserID(ctx)
+	isServiceAccount := authctx.IsServiceAccount(ctx)
+	fmt.Printf("Insert from: userID=%s, isServiceAccount=%v\n", userID, isServiceAccount)
 
 	timestamp := time.UnixMilli(msg.Timestamp)
 	if msg.Timestamp == 0 {
 		timestamp = time.Now()
 	}
 
-	_, err := s.db.Exec(ctx, query,
-		msg.NodeId,
-		timestamp,
-		msg.Temperature,
-		msg.Humidity,
-		msg.SoilMoisture,
+	result := s.db.WithContext(ctx).Exec(
+		`INSERT INTO sensor_data (node_id, time, temperature, humidity, soil_moisture) VALUES (?, ?, ?, ?, ?)`,
+		msg.NodeId, timestamp, msg.Temperature, msg.Humidity, msg.SoilMoisture,
 	)
-
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to insert data: %w", err))
+	if result.Error != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to insert data: %w", result.Error))
 	}
 
 	return connect.NewResponse(&gardenv1.InsertSensorDataResponse{
 		Success: true,
-		Message: "Data inserted successfully",
+		Message: fmt.Sprintf("Data inserted by %s", userID),
 	}), nil
+}
+
+// sensorSummaryRow is the scan target for GetSummary's aggregation query.
+type sensorSummaryRow struct {
+	NodeID   string    `gorm:"column:node_id"`
+	Interval time.Time `gorm:"column:interval"`
+	AvgTemp  float64   `gorm:"column:avg_temp"`
+	AvgHum   float64   `gorm:"column:avg_hum"`
+	AvgSoil  float64   `gorm:"column:avg_soil"`
 }
 
 func (s *GardenService) GetSummary(
@@ -59,65 +64,50 @@ func (s *GardenService) GetSummary(
 ) (*connect.Response[gardenv1.GetSummaryResponse], error) {
 	msg := req.Msg
 
+	userID := authctx.GetUserID(ctx)
+	username := authctx.GetUsername(ctx)
+	fmt.Printf("GetSummary from: userID=%s, username=%s\n", userID, username)
+
 	hours := int32(24)
 	if msg.Hours != nil && *msg.Hours > 0 {
 		hours = *msg.Hours
 	}
 
-	// Start with the base query and arguments
 	query := `
-SELECT 
+SELECT
     node_id,
     time_bucket('15 minutes', time) AS interval,
     AVG(temperature) AS avg_temp,
-    AVG(humidity) AS avg_hum,
+    AVG(humidity)    AS avg_hum,
     AVG(soil_moisture) AS avg_soil
 FROM sensor_data
-WHERE time > NOW() - make_interval(hours => $1)
-`
-	args := []any{hours}
-	paramCount := 1
+WHERE time > NOW() - make_interval(hours => ?)`
 
-	// Append node_id filter if provided
+	args := []any{hours}
+
 	if msg.NodeId != nil && *msg.NodeId != "" {
-		paramCount++
-		query += fmt.Sprintf(" AND node_id = $%d", paramCount)
+		query += " AND node_id = ?"
 		args = append(args, *msg.NodeId)
 	}
 
 	query += `
 GROUP BY node_id, interval
-ORDER BY interval DESC
-`
+ORDER BY interval DESC`
 
-	rows, err := s.db.Query(ctx, query, args...)
-	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("query failed: %w", err))
+	var rows []sensorSummaryRow
+	if result := s.db.WithContext(ctx).Raw(query, args...).Scan(&rows); result.Error != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("query failed: %w", result.Error))
 	}
-	defer rows.Close()
 
-	var summaries []*gardenv1.SensorSummary
-
-	for rows.Next() {
-		var nodeID string
-		var interval time.Time
-		var avgTemp, avgHum, avgSoil float64
-
-		if err := rows.Scan(&nodeID, &interval, &avgTemp, &avgHum, &avgSoil); err != nil {
-			return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("scan failed: %w", err))
-		}
-
+	summaries := make([]*gardenv1.SensorSummary, 0, len(rows))
+	for _, row := range rows {
 		summaries = append(summaries, &gardenv1.SensorSummary{
-			NodeId:          nodeID,
-			IntervalStart:   interval.UnixMilli(),
-			AvgTemperature:  avgTemp,
-			AvgHumidity:     avgHum,
-			AvgSoilMoisture: avgSoil,
+			NodeId:          row.NodeID,
+			IntervalStart:   row.Interval.UnixMilli(),
+			AvgTemperature:  row.AvgTemp,
+			AvgHumidity:     row.AvgHum,
+			AvgSoilMoisture: row.AvgSoil,
 		})
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("rows error: %w", err))
 	}
 
 	return connect.NewResponse(&gardenv1.GetSummaryResponse{

@@ -1,0 +1,6 @@
+# Ignore environment file with secrets
+.env
+
+# Ignore rest.nvim result files
+*.json
+*.result

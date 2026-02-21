@@ -1,0 +1,63 @@
+### Variables
+@API_URL = http://localhost:8080
+
+###
+# SETUP: Run Register/Login then CreateHubToken in 01-auth.http first.
+# HUB_TOKEN and USER_TOKEN are captured automatically from those responses.
+
+###
+# Insert Sensor Data - Basic
+# Requires: Hub service account token (empty username in JWT)
+POST {{API_URL}}/garden.v1.GardenService/InsertSensorData HTTP/1.1
+Authorization: Bearer {{HUB_TOKEN}}
+Content-Type: application/json
+
+{
+  "node_id": "sensor-02",
+  "temperature": 2200.5,
+  "humidity": 65.0,
+  "soil_moisture": 45.0,
+  "timestamp": 1771633100000
+}
+
+###
+# Insert Sensor Data - Without Timestamp (defaults to now)
+POST {{API_URL}}/garden.v1.GardenService/InsertSensorData HTTP/1.1
+Authorization: Bearer {{HUB_TOKEN}}
+Content-Type: application/json
+
+{
+  "node_id": "sensor-02",
+  "temperature": 18.0,
+  "humidity": 70.0,
+  "soil_moisture": 50.0,
+  "timestamp": 0
+}
+
+###
+# Insert Sensor Data - Multiple nodes
+POST {{API_URL}}/garden.v1.GardenService/InsertSensorData HTTP/1.1
+Authorization: Bearer {{HUB_TOKEN}}
+Content-Type: application/json
+
+{
+  "node_id": "sensor-03",
+  "temperature": 25.3,
+  "humidity": 55.0,
+  "soil_moisture": 60.0,
+  "timestamp": 1698765500000
+}
+
+###
+# Insert with User Token (should fail - permission denied)
+# Only hub tokens (service accounts) can insert sensor data
+POST {{API_URL}}/garden.v1.GardenService/InsertSensorData HTTP/1.1
+Authorization: Bearer {{USER_TOKEN}}
+Content-Type: application/json
+
+{
+  "node_id": "sensor-99",
+  "temperature": 20.0,
+  "humidity": 60.0,
+  "soil_moisture": 40.0
+}
