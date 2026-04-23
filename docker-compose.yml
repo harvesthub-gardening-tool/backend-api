@@ -4,7 +4,8 @@ services:
         ports:
             - "8080:8080"
         environment:
-            - DATABASE_URL=postgres://postgres:postgres@db:5432/garden_db?sslmode=disable
+            - DATABASE_URL=${DATABASE_URL}
+            - JWT_KEY_PATH=${JWT_KEY_PATH:-.}
         extra_hosts:
             - "localhost:host-gateway"
         depends_on:
@@ -17,19 +18,19 @@ services:
         restart: unless-stopped
         image: timescale/timescaledb:latest-pg17
         environment:
-            PGUSER: postgres
-            POSTGRES_PASSWORD: postgres
-            POSTGRES_DB: garden_db
+            PGUSER: ${POSTGRES_USER:-postgres}
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+            POSTGRES_DB: ${POSTGRES_DB:-garden_db}
         healthcheck:
             test:
                 - CMD-SHELL
-                - pg_isready -d garden_db -U postgres
+                - pg_isready -d ${POSTGRES_DB:-garden_db} -U ${POSTGRES_USER:-postgres}
             interval: 10s
             timeout: 30s
             retries: 5
             start_period: 20s
         ports:
-        - "5432:5432"
+            - "5432:5432"
         volumes:
             - postgres_data:/var/lib/postgresql/data
             - ./db:/docker-entrypoint-initdb.d
