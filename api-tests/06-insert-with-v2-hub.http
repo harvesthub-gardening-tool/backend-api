@@ -1,0 +1,37 @@
+### Variables
+@API_URL = http://localhost:8080
+# @API_URL = https://harvest-hub-api-secure.grimmely.com
+
+###
+# SETUP NOTES:
+#
+# Verifies that a JWT obtained via the v2 ClaimHubToken flow is a valid
+# service-account token (empty username claim) and is therefore accepted
+# by GardenService.InsertSensorData.
+#
+# Required env var (set automatically by 05-claim-hub-token.http):
+#   - HUB_TOKEN_V2
+
+###
+# InsertSensorData with v2-claimed hub token (should succeed)
+POST {{API_URL}}/garden.v2.GardenService/InsertSensorData HTTP/1.1
+Authorization: Bearer {{HUB_TOKEN_V2}}
+Content-Type: application/json
+
+{
+  "node_id": "sensor-v2-01",
+  "temperature": 21.5,
+  "humidity": 60.0,
+  "soil_moisture": 42.0,
+  "timestamp": 0
+}
+
+###
+# Read back via GetSummary using the user's v2 token
+POST {{API_URL}}/garden.v2.GardenService/GetSummary HTTP/1.1
+Authorization: Bearer {{USER_TOKEN_V2}}
+Content-Type: application/json
+
+{
+  "hours": 1
+}

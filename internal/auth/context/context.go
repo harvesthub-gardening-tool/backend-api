@@ -13,9 +13,12 @@ type contextKey struct{}
 var authKey = contextKey{}
 
 // AuthInfo holds the identity extracted from a validated JWT token.
+// HubID is non-empty only for v2 hub tokens (issued by ClaimHubToken) and
+// scopes write/read access to data belonging to that specific hub.
 type AuthInfo struct {
 	UserID   string
 	Username string
+	HubID    string
 }
 
 // IsServiceAccount returns true when the token belongs to a Hub device (empty username).
@@ -59,4 +62,13 @@ func IsServiceAccount(ctx context.Context) bool {
 		return info.Username == ""
 	}
 	return false
+}
+
+// GetHubID returns the HubID claim from the authenticated token, or empty string.
+// Non-empty only for v2 hub tokens issued by ClaimHubToken.
+func GetHubID(ctx context.Context) string {
+	if info, ok := ctx.Value(authKey).(*AuthInfo); ok {
+		return info.HubID
+	}
+	return ""
 }

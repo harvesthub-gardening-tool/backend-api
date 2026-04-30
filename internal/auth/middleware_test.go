@@ -30,7 +30,7 @@ func newTestJWTHelper(t *testing.T) *testJWTHelper {
 
 func (h *testJWTHelper) generateUserToken(t *testing.T, userID, username string) string {
 	t.Helper()
-	token, err := h.manager.GenerateToken(userID, username, 1*time.Hour)
+	token, err := h.manager.GenerateToken(userID, username, "", 1*time.Hour)
 	if err != nil {
 		t.Fatalf("failed to generate user token: %v", err)
 	}
@@ -39,7 +39,7 @@ func (h *testJWTHelper) generateUserToken(t *testing.T, userID, username string)
 
 func (h *testJWTHelper) generateServiceAccountToken(t *testing.T, serviceAccountID string) string {
 	t.Helper()
-	token, err := h.manager.GenerateToken(serviceAccountID, "", 1*time.Hour)
+	token, err := h.manager.GenerateToken(serviceAccountID, "", "", 1*time.Hour)
 	if err != nil {
 		t.Fatalf("failed to generate service account token: %v", err)
 	}
@@ -48,7 +48,7 @@ func (h *testJWTHelper) generateServiceAccountToken(t *testing.T, serviceAccount
 
 func (h *testJWTHelper) generateExpiredToken(t *testing.T, userID, username string) string {
 	t.Helper()
-	token, err := h.manager.GenerateToken(userID, username, 1*time.Nanosecond)
+	token, err := h.manager.GenerateToken(userID, username, "", 1*time.Nanosecond)
 	if err != nil {
 		t.Fatalf("failed to generate expired token: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestConnectInterceptor_MissingAuthHeader(t *testing.T) {
 	interceptor := auth.NewJWTAuthInterceptor(helper.manager)
 
 	handler := interceptor(passthroughNext(&callRecord{}))
-	req := fakeRequest("/garden.v1.GardenService/GetSummary", http.Header{})
+	req := fakeRequest("/garden.v2.GardenService/GetSummary", http.Header{})
 
 	_, err := handler(context.Background(), req)
 	if err == nil {
@@ -115,7 +115,7 @@ func TestConnectInterceptor_InvalidToken(t *testing.T) {
 
 	handler := interceptor(passthroughNext(&callRecord{}))
 	headers := http.Header{"Authorization": []string{"Bearer invalid_token_string"}}
-	req := fakeRequest("/garden.v1.GardenService/GetSummary", headers)
+	req := fakeRequest("/garden.v2.GardenService/GetSummary", headers)
 
 	_, err := handler(context.Background(), req)
 	if err == nil {
@@ -133,7 +133,7 @@ func TestConnectInterceptor_ExpiredToken(t *testing.T) {
 	expiredToken := helper.generateExpiredToken(t, "user-1", "alice")
 	handler := interceptor(passthroughNext(&callRecord{}))
 	headers := http.Header{"Authorization": []string{fmt.Sprintf("Bearer %s", expiredToken)}}
-	req := fakeRequest("/garden.v1.GardenService/GetSummary", headers)
+	req := fakeRequest("/garden.v2.GardenService/GetSummary", headers)
 
 	_, err := handler(context.Background(), req)
 	if err == nil {
@@ -170,7 +170,7 @@ func TestConnectInterceptor_MalformedBearerHeader(t *testing.T) {
 
 			handler := interceptor(passthroughNext(&callRecord{}))
 			headers := http.Header{"Authorization": []string{tt.header}}
-			req := fakeRequest("/garden.v1.GardenService/GetSummary", headers)
+			req := fakeRequest("/garden.v2.GardenService/GetSummary", headers)
 
 			_, err := handler(context.Background(), req)
 			if err == nil {
@@ -220,7 +220,7 @@ func TestConnectInterceptor_InsertSensorData_Authorization(t *testing.T) {
 			rec := &callRecord{}
 			handler := interceptor(passthroughNext(rec))
 			headers := http.Header{"Authorization": []string{fmt.Sprintf("Bearer %s", token)}}
-			req := fakeRequest("/garden.v1.GardenService/InsertSensorData", headers)
+			req := fakeRequest("/garden.v2.GardenService/InsertSensorData", headers)
 
 			_, err := handler(context.Background(), req)
 
@@ -279,7 +279,7 @@ func TestConnectInterceptor_GetSummary_AnyAuthenticatedUser(t *testing.T) {
 			rec := &callRecord{}
 			handler := interceptor(passthroughNext(rec))
 			headers := http.Header{"Authorization": []string{fmt.Sprintf("Bearer %s", token)}}
-			req := fakeRequest("/garden.v1.GardenService/GetSummary", headers)
+			req := fakeRequest("/garden.v2.GardenService/GetSummary", headers)
 
 			_, err := handler(context.Background(), req)
 			if err != nil {
@@ -301,7 +301,7 @@ func TestConnectInterceptor_SetsAuthContext(t *testing.T) {
 	rec := &callRecord{}
 	handler := interceptor(passthroughNext(rec))
 	headers := http.Header{"Authorization": []string{fmt.Sprintf("Bearer %s", token)}}
-	req := fakeRequest("/garden.v1.GardenService/GetSummary", headers)
+	req := fakeRequest("/garden.v2.GardenService/GetSummary", headers)
 
 	_, err := handler(context.Background(), req)
 	if err != nil {

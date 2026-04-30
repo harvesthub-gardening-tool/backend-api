@@ -10,9 +10,10 @@ HTTP request files for testing the Garden API with [rest.nvim](https://github.co
    ```
 
 2. **Run requests in order** — tokens are captured automatically:
-   - Execute **Register** or **Login** in `01-auth.http` → sets `{{USER_TOKEN}}`
-   - Execute **CreateHubToken** in `01-auth.http` → sets `{{HUB_TOKEN}}`
-   - All other requests use `{{USER_TOKEN}}` / `{{HUB_TOKEN}}` without manual copy-paste
+   - Execute **Register** or **Login** in `04-auth-v2.http` → sets `{{USER_TOKEN_V2}}`
+   - Execute **AssociateHub** in `04-auth-v2.http` → sets `{{DEVICE_ID}}`, `{{HUB_SECRET}}`, `{{HUB_ID_V2}}`
+   - Execute **ClaimHubToken** in `05-claim-hub-token.http` → sets `{{HUB_TOKEN_V2}}`
+   - Subsequent requests use the captured tokens without manual copy-paste
 
 3. **Run with rest.nvim:**
    - Open any `.http` file in `api-tests/`
@@ -28,7 +29,7 @@ Post-request Lua handlers automatically store tokens in global variables:
 # @lang=lua
 local json = vim.json.decode(response.body)
 if json and json.token then
-  client.global.set("USER_TOKEN", json.token)
+  client.global.set("USER_TOKEN_V2", json.token)
 end
 %}
 ```
@@ -37,11 +38,17 @@ Variables persist for the duration of the Neovim session. Re-run Register/Login 
 
 ## Files
 
-- `01-auth.http` - Register, login, and hub token management (sets `USER_TOKEN`, `HUB_TOKEN`)
-- `01-health.http` - Basic connectivity check
-- `02-insert-sensor-data.http` - Hub writes sensor data (uses `HUB_TOKEN`)
-- `03-get-summary.http` - Query aggregated data (uses `USER_TOKEN`)
-- `99-unauthorized.http` - Test auth failures
+Run in this order to exercise the full QR-code provisioning flow:
+
+1. `04-auth-v2.http` — Register/Login + AssociateHub + ListHubs + RevokeHub
+   (sets `USER_TOKEN_V2`, `DEVICE_ID`, `HUB_SECRET`, `HUB_ID_V2`)
+2. `05-claim-hub-token.http` — Public hub token claim flow with claim-once enforcement
+   (sets `HUB_TOKEN_V2`)
+3. `06-insert-with-v2-hub.http` — Verify the v2-claimed JWT works for `InsertSensorData`
+4. `01-health.http` — Basic connectivity check
+5. `02-insert-sensor-data.http` — Hub writes sensor data (uses `HUB_TOKEN_V2`)
+6. `03-get-summary.http` — Query aggregated data (uses `USER_TOKEN_V2`)
+7. `99-unauthorized.http` — Test auth failures
 
 ## Notes
 

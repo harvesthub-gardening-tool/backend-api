@@ -27,7 +27,7 @@ func TestJWTManager_GenerateToken(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("generates valid user token", func(t *testing.T) {
-		token, err := manager.GenerateToken("user-123", "john@example.com", 24*time.Hour)
+		token, err := manager.GenerateToken("user-123", "john@example.com", "", 24*time.Hour)
 		require.NoError(t, err)
 		assert.NotEmpty(t, token)
 
@@ -39,7 +39,7 @@ func TestJWTManager_GenerateToken(t *testing.T) {
 	})
 
 	t.Run("generates valid service account token with empty username", func(t *testing.T) {
-		token, err := manager.GenerateToken("hub-456", "", 365*24*time.Hour)
+		token, err := manager.GenerateToken("hub-456", "", "", 365*24*time.Hour)
 		require.NoError(t, err)
 		assert.NotEmpty(t, token)
 
@@ -52,7 +52,7 @@ func TestJWTManager_GenerateToken(t *testing.T) {
 
 	t.Run("sets correct expiry time", func(t *testing.T) {
 		before := time.Now()
-		token, err := manager.GenerateToken("user-123", "test@example.com", time.Hour)
+		token, err := manager.GenerateToken("user-123", "test@example.com", "", time.Hour)
 		require.NoError(t, err)
 		after := time.Now()
 
@@ -64,21 +64,21 @@ func TestJWTManager_GenerateToken(t *testing.T) {
 	})
 
 	t.Run("returns error for empty user ID", func(t *testing.T) {
-		token, err := manager.GenerateToken("", "user@example.com", 24*time.Hour)
+		token, err := manager.GenerateToken("", "user@example.com", "", 24*time.Hour)
 		assert.Error(t, err)
 		assert.Empty(t, token)
 		assert.Contains(t, err.Error(), "userID")
 	})
 
 	t.Run("returns error for zero expiry", func(t *testing.T) {
-		token, err := manager.GenerateToken("user-123", "user@example.com", 0)
+		token, err := manager.GenerateToken("user-123", "user@example.com", "", 0)
 		assert.Error(t, err)
 		assert.Empty(t, token)
 		assert.Contains(t, err.Error(), "expiry")
 	})
 
 	t.Run("returns error for negative expiry", func(t *testing.T) {
-		token, err := manager.GenerateToken("user-123", "user@example.com", -time.Hour)
+		token, err := manager.GenerateToken("user-123", "user@example.com", "", -time.Hour)
 		assert.Error(t, err)
 		assert.Empty(t, token)
 		assert.Contains(t, err.Error(), "expiry")
@@ -90,7 +90,7 @@ func TestJWTManager_ValidateToken(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("validates correct user token", func(t *testing.T) {
-		token, err := manager.GenerateToken("user-123", "john@example.com", 24*time.Hour)
+		token, err := manager.GenerateToken("user-123", "john@example.com", "", 24*time.Hour)
 		require.NoError(t, err)
 
 		claims, err := manager.ValidateToken(token)
@@ -101,7 +101,7 @@ func TestJWTManager_ValidateToken(t *testing.T) {
 	})
 
 	t.Run("validates correct service account token", func(t *testing.T) {
-		token, err := manager.GenerateToken("hub-456", "", 365*24*time.Hour)
+		token, err := manager.GenerateToken("hub-456", "", "", 365*24*time.Hour)
 		require.NoError(t, err)
 
 		claims, err := manager.ValidateToken(token)
@@ -111,7 +111,7 @@ func TestJWTManager_ValidateToken(t *testing.T) {
 	})
 
 	t.Run("rejects expired token", func(t *testing.T) {
-		token, err := manager.GenerateToken("user-123", "test@example.com", time.Millisecond)
+		token, err := manager.GenerateToken("user-123", "test@example.com", "", time.Millisecond)
 		require.NoError(t, err)
 		time.Sleep(10 * time.Millisecond)
 
@@ -122,7 +122,7 @@ func TestJWTManager_ValidateToken(t *testing.T) {
 	})
 
 	t.Run("rejects token with invalid signature", func(t *testing.T) {
-		token, err := manager.GenerateToken("user-123", "test@example.com", 24*time.Hour)
+		token, err := manager.GenerateToken("user-123", "test@example.com", "", 24*time.Hour)
 		require.NoError(t, err)
 
 		otherManager, err := NewJWTManager()
@@ -167,7 +167,7 @@ func TestClaims_IsServiceAccount(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("user token is not a service account", func(t *testing.T) {
-		token, err := manager.GenerateToken("user-123", "john@example.com", 24*time.Hour)
+		token, err := manager.GenerateToken("user-123", "john@example.com", "", 24*time.Hour)
 		require.NoError(t, err)
 
 		claims, err := manager.ValidateToken(token)
@@ -176,7 +176,7 @@ func TestClaims_IsServiceAccount(t *testing.T) {
 	})
 
 	t.Run("service account token with empty username", func(t *testing.T) {
-		token, err := manager.GenerateToken("hub-456", "", 365*24*time.Hour)
+		token, err := manager.GenerateToken("hub-456", "", "", 365*24*time.Hour)
 		require.NoError(t, err)
 
 		claims, err := manager.ValidateToken(token)
@@ -204,7 +204,7 @@ func TestJWTManager_ConcurrentAccess(t *testing.T) {
 	t.Run("handles concurrent token generation and validation", func(t *testing.T) {
 		tokens := make([]string, 10)
 		for i := range tokens {
-			token, err := manager.GenerateToken("user-"+string(rune('0'+i)), "u@example.com", time.Hour)
+			token, err := manager.GenerateToken("user-"+string(rune('0'+i)), "u@example.com", "", time.Hour)
 			require.NoError(t, err)
 			tokens[i] = token
 		}
@@ -244,7 +244,7 @@ func TestNewOrLoadJWTManager(t *testing.T) {
 		manager1, err := NewOrLoadJWTManager(tempDir)
 		require.NoError(t, err)
 
-		token, err := manager1.GenerateToken("user-123", "test@example.com", 24*time.Hour)
+		token, err := manager1.GenerateToken("user-123", "test@example.com", "", 24*time.Hour)
 		require.NoError(t, err)
 
 		manager2, err := NewOrLoadJWTManager(tempDir)
@@ -261,7 +261,7 @@ func TestNewOrLoadJWTManager(t *testing.T) {
 		manager1, err := NewOrLoadJWTManager(tempDir)
 		require.NoError(t, err)
 
-		token1, err := manager1.GenerateToken("user-123", "test@example.com", 24*time.Hour)
+		token1, err := manager1.GenerateToken("user-123", "test@example.com", "", 24*time.Hour)
 		require.NoError(t, err)
 
 		require.NoError(t, os.Remove(tempDir+"/.jwt_private.pem"))
@@ -272,7 +272,7 @@ func TestNewOrLoadJWTManager(t *testing.T) {
 		_, err = manager2.ValidateToken(token1)
 		assert.Error(t, err)
 
-		token2, err := manager2.GenerateToken("user-456", "new@example.com", 24*time.Hour)
+		token2, err := manager2.GenerateToken("user-456", "new@example.com", "", 24*time.Hour)
 		require.NoError(t, err)
 		claims, err := manager2.ValidateToken(token2)
 		require.NoError(t, err)
@@ -304,7 +304,7 @@ func TestNewOrLoadJWTManager(t *testing.T) {
 		manager2, err := NewOrLoadJWTManager(tempDir)
 		require.NoError(t, err)
 
-		token, err := manager2.GenerateToken("user-123", "test@example.com", 24*time.Hour)
+		token, err := manager2.GenerateToken("user-123", "test@example.com", "", 24*time.Hour)
 		require.NoError(t, err)
 		claims, err := manager2.ValidateToken(token)
 		require.NoError(t, err)
@@ -325,7 +325,7 @@ func TestLoadJWTManager(t *testing.T) {
 		manager2, err := loadJWTManager(privatePath, publicPath)
 		require.NoError(t, err)
 
-		token, err := manager2.GenerateToken("user-123", "test@example.com", 24*time.Hour)
+		token, err := manager2.GenerateToken("user-123", "test@example.com", "", 24*time.Hour)
 		require.NoError(t, err)
 		claims, err := manager2.ValidateToken(token)
 		require.NoError(t, err)

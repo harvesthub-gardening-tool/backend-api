@@ -1,0 +1,91 @@
+### Variables
+@API_URL = http://localhost:8080
+# @API_URL = https://harvest-hub-api-secure.grimmely.com
+
+###
+# SETUP NOTES:
+#
+# This file simulates the *hub firmware* claiming its JWT after the user
+# has associated the hub from the mobile app (see 04-auth-v2.http).
+#
+# ClaimHubToken is a PUBLIC endpoint - no Authorization header is required.
+# Authentication is performed via (device_id, hub_secret) which only the
+# physical hub knows (NVS-stored, originally printed on the QR code).
+#
+# Required env vars (set automatically when AssociateHub runs in 04-auth-v2.http):
+#   - DEVICE_ID
+#   - HUB_SECRET
+#
+# Claim-once: a hub may only successfully claim a token a single time.
+# After that, ClaimHubToken returns FailedPrecondition.
+
+###
+# ClaimHubToken - happy path
+# Captures HUB_TOKEN_V2 for use in 06-insert-with-v2-hub.http.
+POST {{API_URL}}/auth.v2.AuthService/ClaimHubToken HTTP/1.1
+Content-Type: application/json
+
+{
+  "device_id": "{{DEVICE_ID}}",
+  "hub_secret": "{{HUB_SECRET}}"
+}
+
+# @lang=lua
+> {%
+local json = vim.json.decode(response.body)
+if json and json.token then
+    vim.env.HUB_TOKEN_V2 = json.token
+end
+%}
+
+###
+# ClaimHubToken - claim twice (should fail: FailedPrecondition)
+# Re-running the same successful claim must be rejected to prevent
+# token theft after the first claim.
+POST {{API_URL}}/auth.v2.AuthService/ClaimHubToken HTTP/1.1
+Content-Type: application/json
+
+{
+  "device_id": "{{DEVICE_ID}}",
+  "hub_secret": "{{HUB_SECRET}}"
+}
+
+###
+# ClaimHubToken - wrong secret (should fail: Unauthenticated / PermissionDenied)
+POST {{API_URL}}/auth.v2.AuthService/ClaimHubToken HTTP/1.1
+Content-Type: application/json
+
+{
+  "device_id": "{{DEVICE_ID}}",
+  "hub_secret": "definitely-not-the-real-secret"
+}
+
+###
+# ClaimHubToken - unknown device_id (should fail: NotFound / Unauthenticated)
+POST {{API_URL}}/auth.v2.AuthService/ClaimHubToken HTTP/1.1
+Content-Type: application/json
+
+{
+  "device_id": "hub-uuid-does-not-exist-9999",
+  "hub_secret": "irrelevant"
+}
+
+###
+# ClaimHubToken - empty device_id (should fail: InvalidArgument)
+POST {{API_URL}}/auth.v2.AuthService/ClaimHubToken HTTP/1.1
+Content-Type: application/json
+
+{
+  "device_id": "",
+  "hub_secret": "{{HUB_SECRET}}"
+}
+
+###
+# ClaimHubToken - empty hub_secret (should fail: InvalidArgument)
+POST {{API_URL}}/auth.v2.AuthService/ClaimHubToken HTTP/1.1
+Content-Type: application/json
+
+{
+  "device_id": "{{DEVICE_ID}}",
+  "hub_secret": ""
+}
