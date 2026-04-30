@@ -62,8 +62,14 @@ func (s *GardenService) InsertSensorData(
 	}
 
 	result := s.db.WithContext(ctx).Exec(
-		`INSERT INTO sensor_data (node_id, time, temperature, humidity, soil_moisture) VALUES (?, ?, ?, ?, ?)`,
-		msg.NodeId, timestamp, msg.Temperature, msg.Humidity, msg.SoilMoisture,
+		`INSERT INTO sensor_data (node_id, time, air_temperature, air_pressure, air_humidity, soil_temperature, soil_humidity) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		msg.NodeId,
+		timestamp,
+		msg.AirTemperature,
+		msg.AirPressure,
+		msg.AirHumidity,
+		msg.SoilTemperature,
+		msg.SoilHumidity,
 	)
 	if result.Error != nil {
 		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to insert data: %w", result.Error))
@@ -105,12 +111,15 @@ func (s *GardenService) bindNodeToHub(ctx context.Context, nodeID string, hubID 
 
 // sensorSummaryRow is the scan target for GetSummary's aggregation query.
 type sensorSummaryRow struct {
-	NodeID   string    `gorm:"column:node_id"`
-	HubID    uint      `gorm:"column:hub_id"`
-	Interval time.Time `gorm:"column:interval"`
-	AvgTemp  float64   `gorm:"column:avg_temp"`
-	AvgHum   float64   `gorm:"column:avg_hum"`
-	AvgSoil  float64   `gorm:"column:avg_soil"`
+	NodeID             string    `gorm:"column:node_id"`
+	HubID              uint      `gorm:"column:hub_id"`
+	Interval           time.Time `gorm:"column:interval"`
+	AvgAirTemperature  float64   `gorm:"column:avg_air_temperature"`
+	AvgAirPressure     float64   `gorm:"column:avg_air_pressure"`
+	AvgAirHumidity     float64   `gorm:"column:avg_air_humidity"`
+	AvgSoilTemperature float64   `gorm:"column:avg_soil_temperature"`
+	AvgSoilHumidity    float64   `gorm:"column:avg_soil_humidity"`
+	MaxAirTemperature  float64   `gorm:"column:max_air_temperature"`
 }
 
 // GetSummary returns time-bucketed averages restricted to data the caller owns.
@@ -152,11 +161,14 @@ func (s *GardenService) GetSummary(
 	query := `
 SELECT
     sd.node_id,
-    h.id                  AS hub_id,
+    h.id                            AS hub_id,
     time_bucket('15 minutes', sd.time) AS interval,
-    AVG(sd.temperature)   AS avg_temp,
-    AVG(sd.humidity)      AS avg_hum,
-    AVG(sd.soil_moisture) AS avg_soil
+    AVG(sd.air_temperature)         AS avg_air_temperature,
+    AVG(sd.air_pressure)            AS avg_air_pressure,
+    AVG(sd.air_humidity)            AS avg_air_humidity,
+    AVG(sd.soil_temperature)        AS avg_soil_temperature,
+    AVG(sd.soil_humidity)           AS avg_soil_humidity,
+    MAX(sd.air_temperature)         AS max_air_temperature
 FROM sensor_data sd
 JOIN sensor_nodes sn ON sn.node_id = sd.node_id
 JOIN hubs h          ON h.id = sn.hub_id
@@ -198,12 +210,15 @@ ORDER BY interval DESC`
 	summaries := make([]*gardenv2.SensorSummary, 0, len(rows))
 	for _, row := range rows {
 		summaries = append(summaries, &gardenv2.SensorSummary{
-			NodeId:          row.NodeID,
-			HubId:           fmt.Sprint(row.HubID),
-			IntervalStart:   row.Interval.UnixMilli(),
-			AvgTemperature:  row.AvgTemp,
-			AvgHumidity:     row.AvgHum,
-			AvgSoilMoisture: row.AvgSoil,
+			NodeId:             row.NodeID,
+			HubId:              fmt.Sprint(row.HubID),
+			IntervalStart:      row.Interval.UnixMilli(),
+			AvgAirTemperature:  row.AvgAirTemperature,
+			AvgAirPressure:     row.AvgAirPressure,
+			AvgAirHumidity:     row.AvgAirHumidity,
+			AvgSoilTemperature: row.AvgSoilTemperature,
+			AvgSoilHumidity:    row.AvgSoilHumidity,
+			MaxAirTemperature:  row.MaxAirTemperature,
 		})
 	}
 

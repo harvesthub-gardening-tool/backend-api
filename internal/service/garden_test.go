@@ -76,8 +76,9 @@ func TestInsertSensorData(t *testing.T) {
 			name: "successful insert: new sensor node binds to caller hub",
 			ctx:  hubCtx("1", "42"),
 			req: &gardenv2.InsertSensorDataRequest{
-				NodeId: "sensor-01", Temperature: 22.5, Humidity: 65.0,
-				SoilMoisture: 45.0, Timestamp: 1698765432000,
+				NodeId: "sensor-01", AirTemperature: 22.5, AirPressure: 101325.0,
+				AirHumidity: 65.0, SoilTemperature: 19.5, SoilHumidity: 45.0,
+				Timestamp: 1698765432000,
 			},
 			mockSetup: func(mock sqlmock.Sqlmock) {
 				mock.ExpectQuery(`SELECT .* FROM "sensor_nodes"`).
@@ -88,7 +89,7 @@ func TestInsertSensorData(t *testing.T) {
 					WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 				mock.ExpectCommit()
 				mock.ExpectExec("INSERT INTO sensor_data").
-					WithArgs("sensor-01", sqlmock.AnyArg(), 22.5, 65.0, 45.0).
+					WithArgs("sensor-01", sqlmock.AnyArg(), 22.5, 101325.0, 65.0, 19.5, 45.0).
 					WillReturnResult(sqlmock.NewResult(1, 1))
 			},
 		},
@@ -96,8 +97,9 @@ func TestInsertSensorData(t *testing.T) {
 			name: "successful insert: existing node already bound to caller hub",
 			ctx:  hubCtx("1", "42"),
 			req: &gardenv2.InsertSensorDataRequest{
-				NodeId: "sensor-02", Temperature: 18.0, Humidity: 70.0,
-				SoilMoisture: 50.0, Timestamp: 0,
+				NodeId: "sensor-02", AirTemperature: 18.0, AirPressure: 100900.0,
+				AirHumidity: 70.0, SoilTemperature: 17.5, SoilHumidity: 50.0,
+				Timestamp: 0,
 			},
 			mockSetup: func(mock sqlmock.Sqlmock) {
 				hubID := int64(42)
@@ -106,7 +108,7 @@ func TestInsertSensorData(t *testing.T) {
 					WillReturnRows(sqlmock.NewRows(sensorNodeCols).
 						AddRow(1, "sensor-02", hubID, "", "", time.Now(), time.Now()))
 				mock.ExpectExec("INSERT INTO sensor_data").
-					WithArgs("sensor-02", sqlmock.AnyArg(), 18.0, 70.0, 50.0).
+					WithArgs("sensor-02", sqlmock.AnyArg(), 18.0, 100900.0, 70.0, 17.5, 50.0).
 					WillReturnResult(sqlmock.NewResult(1, 1))
 			},
 		},
@@ -114,7 +116,7 @@ func TestInsertSensorData(t *testing.T) {
 			name: "permission denied: caller is a user, not a hub",
 			ctx:  userCtx("1"),
 			req: &gardenv2.InsertSensorDataRequest{
-				NodeId: "sensor-01", Temperature: 22.5, Humidity: 65.0, SoilMoisture: 45.0,
+				NodeId: "sensor-01", AirTemperature: 22.5, AirHumidity: 65.0, SoilHumidity: 45.0,
 			},
 			mockSetup: func(_ sqlmock.Sqlmock) {},
 			wantErr:   true,
@@ -124,7 +126,7 @@ func TestInsertSensorData(t *testing.T) {
 			name: "permission denied: hub token without HubID claim",
 			ctx:  hubCtx("1", ""),
 			req: &gardenv2.InsertSensorDataRequest{
-				NodeId: "sensor-01", Temperature: 22.5, Humidity: 65.0, SoilMoisture: 45.0,
+				NodeId: "sensor-01", AirTemperature: 22.5, AirHumidity: 65.0, SoilHumidity: 45.0,
 			},
 			mockSetup: func(_ sqlmock.Sqlmock) {},
 			wantErr:   true,
@@ -134,7 +136,7 @@ func TestInsertSensorData(t *testing.T) {
 			name: "permission denied: node already bound to a different hub (cross-hub spoof)",
 			ctx:  hubCtx("1", "42"),
 			req: &gardenv2.InsertSensorDataRequest{
-				NodeId: "sensor-99", Temperature: 22.5, Humidity: 65.0, SoilMoisture: 45.0,
+				NodeId: "sensor-99", AirTemperature: 22.5, AirHumidity: 65.0, SoilHumidity: 45.0,
 			},
 			mockSetup: func(mock sqlmock.Sqlmock) {
 				otherHub := int64(99)
@@ -150,7 +152,7 @@ func TestInsertSensorData(t *testing.T) {
 			name: "invalid argument: empty node_id",
 			ctx:  hubCtx("1", "42"),
 			req: &gardenv2.InsertSensorDataRequest{
-				NodeId: "", Temperature: 1, Humidity: 2, SoilMoisture: 3,
+				NodeId: "", AirTemperature: 1, AirHumidity: 2, SoilHumidity: 3,
 			},
 			mockSetup: func(_ sqlmock.Sqlmock) {},
 			wantErr:   true,
@@ -160,8 +162,9 @@ func TestInsertSensorData(t *testing.T) {
 			name: "internal error: db error on sensor_data insert propagates",
 			ctx:  hubCtx("1", "42"),
 			req: &gardenv2.InsertSensorDataRequest{
-				NodeId: "sensor-01", Temperature: 22.5, Humidity: 65.0,
-				SoilMoisture: 45.0, Timestamp: 1698765432000,
+				NodeId: "sensor-01", AirTemperature: 22.5, AirPressure: 101325.0,
+				AirHumidity: 65.0, SoilTemperature: 19.5, SoilHumidity: 45.0,
+				Timestamp: 1698765432000,
 			},
 			mockSetup: func(mock sqlmock.Sqlmock) {
 				hubID := int64(42)
@@ -170,7 +173,7 @@ func TestInsertSensorData(t *testing.T) {
 					WillReturnRows(sqlmock.NewRows(sensorNodeCols).
 						AddRow(1, "sensor-01", hubID, "", "", time.Now(), time.Now()))
 				mock.ExpectExec("INSERT INTO sensor_data").
-					WithArgs("sensor-01", sqlmock.AnyArg(), 22.5, 65.0, 45.0).
+					WithArgs("sensor-01", sqlmock.AnyArg(), 22.5, 101325.0, 65.0, 19.5, 45.0).
 					WillReturnError(sqlmock.ErrCancelled)
 			},
 			wantErr:  true,
@@ -210,7 +213,17 @@ func TestInsertSensorData(t *testing.T) {
 
 func TestGetSummary(t *testing.T) {
 	now := time.Now().Truncate(15 * time.Minute)
-	cols := []string{"node_id", "hub_id", "interval", "avg_temp", "avg_hum", "avg_soil"}
+	cols := []string{
+		"node_id",
+		"hub_id",
+		"interval",
+		"avg_air_temperature",
+		"avg_air_pressure",
+		"avg_air_humidity",
+		"avg_soil_temperature",
+		"avg_soil_humidity",
+		"max_air_temperature",
+	}
 
 	tests := []struct {
 		name      string
@@ -230,8 +243,8 @@ func TestGetSummary(t *testing.T) {
 				mock.ExpectQuery("FROM sensor_data sd").
 					WithArgs(int64(24), int64(7)).
 					WillReturnRows(sqlmock.NewRows(cols).
-						AddRow("sensor-01", int64(42), now, 22.5, 65.0, 45.0).
-						AddRow("sensor-01", int64(42), now.Add(-15*time.Minute), 21.0, 63.0, 44.0))
+						AddRow("sensor-01", int64(42), now, 22.5, 101325.0, 65.0, 19.5, 45.0, 23.0).
+						AddRow("sensor-01", int64(42), now.Add(-15*time.Minute), 21.0, 101100.0, 63.0, 18.5, 44.0, 21.5))
 			},
 			wantCount: 2,
 			wantHubID: "42",
@@ -243,7 +256,7 @@ func TestGetSummary(t *testing.T) {
 			mockSetup: func(mock sqlmock.Sqlmock) {
 				mock.ExpectQuery("FROM sensor_data sd").
 					WithArgs(int64(6), int64(7), "sensor-01").
-					WillReturnRows(sqlmock.NewRows(cols).AddRow("sensor-01", int64(42), now, 22.5, 65.0, 45.0))
+					WillReturnRows(sqlmock.NewRows(cols).AddRow("sensor-01", int64(42), now, 22.5, 101325.0, 65.0, 19.5, 45.0, 23.0))
 			},
 			wantCount: 1,
 		},
@@ -254,7 +267,7 @@ func TestGetSummary(t *testing.T) {
 			mockSetup: func(mock sqlmock.Sqlmock) {
 				mock.ExpectQuery("FROM sensor_data sd").
 					WithArgs(int64(24), int64(7), int64(42)).
-					WillReturnRows(sqlmock.NewRows(cols).AddRow("sensor-01", int64(42), now, 22.5, 65.0, 45.0))
+					WillReturnRows(sqlmock.NewRows(cols).AddRow("sensor-01", int64(42), now, 22.5, 101325.0, 65.0, 19.5, 45.0, 23.0))
 			},
 			wantCount: 1,
 		},
@@ -285,7 +298,7 @@ func TestGetSummary(t *testing.T) {
 				mock.ExpectQuery("FROM sensor_data sd").
 					WithArgs(int64(24), int64(7), int64(42)).
 					WillReturnRows(sqlmock.NewRows(cols).
-						AddRow("sensor-01", int64(42), now, 22.5, 65.0, 45.0))
+						AddRow("sensor-01", int64(42), now, 22.5, 101325.0, 65.0, 19.5, 45.0, 23.0))
 			},
 			wantCount: 1,
 		},
@@ -358,7 +371,17 @@ func TestGetSummary_HoursDefault(t *testing.T) {
 	db, mock := newTestDB(t)
 
 	mock.ExpectQuery("FROM sensor_data sd").WithArgs(int64(24), int64(1)).
-		WillReturnRows(sqlmock.NewRows([]string{"node_id", "interval", "avg_temp", "avg_hum", "avg_soil"}))
+		WillReturnRows(sqlmock.NewRows([]string{
+			"node_id",
+			"hub_id",
+			"interval",
+			"avg_air_temperature",
+			"avg_air_pressure",
+			"avg_air_humidity",
+			"avg_soil_temperature",
+			"avg_soil_humidity",
+			"max_air_temperature",
+		}))
 
 	svc := service.NewGardenService(db)
 	_, err := svc.GetSummary(userCtx("1"), connect.NewRequest(&gardenv2.GetSummaryRequest{}))
@@ -374,7 +397,17 @@ func TestGetSummary_ZeroHoursDefaultsTo24(t *testing.T) {
 	db, mock := newTestDB(t)
 
 	mock.ExpectQuery("FROM sensor_data sd").WithArgs(int64(24), int64(1)).
-		WillReturnRows(sqlmock.NewRows([]string{"node_id", "interval", "avg_temp", "avg_hum", "avg_soil"}))
+		WillReturnRows(sqlmock.NewRows([]string{
+			"node_id",
+			"hub_id",
+			"interval",
+			"avg_air_temperature",
+			"avg_air_pressure",
+			"avg_air_humidity",
+			"avg_soil_temperature",
+			"avg_soil_humidity",
+			"max_air_temperature",
+		}))
 
 	svc := service.NewGardenService(db)
 	_, err := svc.GetSummary(userCtx("1"), connect.NewRequest(&gardenv2.GetSummaryRequest{
