@@ -71,7 +71,8 @@ func (s *AuthServiceV2) AssociateHub(
 	req *connect.Request[authv2.AssociateHubRequest],
 ) (*connect.Response[authv2.AssociateHubResponse], error) {
 	userID := authctx.GetUserID(ctx)
-	if userID == "" {
+	username := authctx.GetUsername(ctx)
+	if userID == "" || username == "" {
 		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("authentication required"))
 	}
 
