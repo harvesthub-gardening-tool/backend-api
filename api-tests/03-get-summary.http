@@ -1,7 +1,7 @@
 ### Variables
-# @API_URL = http://localhost:8080
-@API_URL = https://harvest-hub-api-secure.grimmely.com
-@USER_TOKEN = eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiMSIsInVzZXJuYW1lIjoidGVzdEBleGFtcGxlLmNvbSIsImV4cCI6MTc3NzU4MzUyNSwibmJmIjoxNzc3NDk3MTI1LCJpYXQiOjE3Nzc0OTcxMjV9.JZI17ndLWMZN9jM7ZEV86plcYC5UjBI_gQLDw3wDe5xrwRw9fJxtSNHsv3EBRfpKnctK0MZWzWRVkyJ4YoFuszf9EszoOxZbxMTk8NrY_SQ0Y3BqrhQVcN3HkTfc2Dl-AI58mCSAH9gg8Q1JuDtcw76MxOT4Gx11CeRsEzJO9CI70trxwpCiPKIOVzXI2TmQdibkC4zoN7XKn41VKsmQC-6gP559wjdJNHDpDNmU6Jxzu_IYbTO-dVP46HBeEf2AJRnV2Q1xSVe-av8fSB0MRjLGqZ_c2yJPuUXUgfsW1LjxbUzbOt3L6LHUdKDB7ffHjiNv-_z7FCVQg98RavOJEg
+@API_URL = http://localhost:8080
+@USER_TOKEN = {{USER_TOKEN_V2}}
+@HUB_TOKEN = {{HUB_TOKEN_V2}}
 
 ###
 # SETUP: Run Register/Login in 01-auth.http first.
