@@ -57,7 +57,7 @@ Request:
 Backend:
 
 - Creates a `hubs` row owned by the calling user
-- Stores `device_id` (unique) + bcrypt(`hub_secret`)
+- Stores `device_id` (unique) + hex-encoded SHA-256 hash of `hub_secret`
 - One hub ↔ one user (enforced by unique `device_id`)
 
 ### 3. Hub claims its token (once)
