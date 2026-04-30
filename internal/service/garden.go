@@ -135,7 +135,7 @@ func (s *GardenService) GetSummary(
 	}
 	var userID uint
 	if _, err := fmt.Sscan(userIDStr, &userID); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("invalid user id in token: %w", err))
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("invalid user id in token: %w", err))
 	}
 
 	isService := authctx.IsServiceAccount(ctx)
