@@ -45,7 +45,7 @@ func (s *GardenService) InsertSensorData(
 	}
 	var hubID uint
 	if _, err := fmt.Sscan(hubIDStr, &hubID); err != nil {
-		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("invalid hub id in token: %w", err))
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("invalid hub id in token: %w", err))
 	}
 
 	if msg.NodeId == "" {
