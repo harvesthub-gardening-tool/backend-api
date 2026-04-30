@@ -7,7 +7,7 @@
 //
 // This package contains:
 //   - GORM models: User, HubToken (database representations)
-//   - AuthService: Register, Login, CreateHubToken, ListHubTokens, RevokeHubToken
+//   - AuthService: Register, Login, AssociateHub, ClaimHubToken, ListHubs, RevokeHub
 //   - NewJWTAuthInterceptor: Connect RPC middleware for RS256 JWT validation
 //
 // Two token types are in use:

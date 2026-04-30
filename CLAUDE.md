@@ -52,8 +52,10 @@ go mod tidy
 
 Proto imports:
 ```go
-gardenv1 "github.com/harvesthub-gardening-tool/protos-go/garden/v1"
-"github.com/harvesthub-gardening-tool/protos-go/garden/v1/gardenv1connect"
+gardenv2 "github.com/harvesthub-gardening-tool/protos-go/garden/v2"
+"github.com/harvesthub-gardening-tool/protos-go/garden/v2/gardenv2connect"
+authv2 "github.com/harvesthub-gardening-tool/protos-go/auth/v2"
+"github.com/harvesthub-gardening-tool/protos-go/auth/v2/authv2connect"
 ```
 
 ## Architecture
@@ -66,19 +68,20 @@ gardenv1 "github.com/harvesthub-gardening-tool/protos-go/garden/v1"
 - `internal/auth/middleware.go` — JWT interceptor (RS256 validation)
 - `internal/auth/jwt/` — JWT token generation/validation, RSA key persistence (`package authjwt`)
 - `internal/auth/context/` — AuthInfo type and context helpers (`package authctx`)
-- `internal/service/garden.go` — Business logic for `InsertSensorData` and `GetSummary`
-- `internal/service/auth_service.go` — Connect RPC handlers for auth endpoints
-- `init-databases.sql` — DB schema with TimescaleDB hypertables
-- `docker-compose.yml` — Full stack: API, PostgreSQL 17, Swagger UI
+- `internal/service/garden.go` — Business logic for `InsertSensorData` and `GetSummary` (garden.v2)
+- `internal/service/auth_service_v2.go` — Connect RPC handlers for auth.v2 endpoints
+- `db/schema.sql` — Sensor_data hypertable definition (TimescaleDB)
+- `db/seed.sql` — Sample seed data
+- `docker-compose.yml` — Full stack: API, PostgreSQL 17
 
 ### Authentication Model
 
 JWT-based authentication (RS256) with two token types:
 
-1. **Service account tokens** (Hub devices) — Empty username field. Authorized for `InsertSensorData` only. 1-year expiry.
-2. **User tokens** (mobile app) — Non-empty username/email. Authorized for read operations. 24-hour expiry.
+1. **Hub tokens** (Hub devices) — Empty username, non-empty `HubID` claim. Authorized for `InsertSensorData` only. 1-year expiry. Issued via `auth.v2/ClaimHubToken` (QR-code provisioning, claim-once).
+2. **User tokens** (mobile app) — Non-empty username/email. Authorized for read operations and hub management (`AssociateHub`, `ListHubs`, `RevokeHub`). 24-hour expiry.
 
-The auth middleware in `internal/auth/middleware.go` inspects JWT claims to distinguish service accounts from users and enforces per-RPC authorization.
+The auth middleware in `internal/auth/middleware.go` inspects JWT claims to distinguish hubs from users and enforces per-RPC authorization. Per-user data isolation: `GetSummary` JOINs `sensor_data → sensor_nodes → hubs` filtered by `hubs.user_id = caller`.
 
 RSA key pair is persisted to `.jwt_private.pem` / `.jwt_public.pem` so hub tokens survive server restarts.
 
@@ -88,8 +91,8 @@ RSA key pair is persisted to `.jwt_private.pem` / `.jwt_public.pem` so hub token
 internal/auth/
   jwt/        — authjwt: JWTManager, Claims, key generation/persistence
   context/    — authctx: AuthInfo, SetAuthInfo, GetUserID, GetUsername, IsServiceAccount
-  models.go   — GORM models: User, HubToken
-  service.go  — AuthService: Register, Login, CreateHubToken, ListHubTokens, RevokeHubToken
+  models.go   — GORM models: User, Hub, HubToken
+  service.go  — AuthService (v2): Register, Login, AssociateHub, ListHubs, RevokeHub, ClaimHubToken
   middleware.go — NewJWTAuthInterceptor (Connect unary interceptor)
   testing.go  — NewTestGORMDB, CreateTestAuthContext (test helpers)
 ```
@@ -104,7 +107,6 @@ PostgreSQL 17 with TimescaleDB extension. Sensor data stored in a hypertable par
 |---------|------|---------|
 | api | 8080 | Backend API |
 | db | 5432 | TimescaleDB (PostgreSQL 17-based, garden_db) |
-| swagger-ui | 8081 | API documentation |
 
 ### Environment Variables
 
@@ -125,13 +127,14 @@ Probe (STM32, BLE) → Hub (ESP32-S3, BLE scan) → Backend API (Connect RPC + J
 
 Connect protocol (gRPC-compatible, also accepts JSON over HTTP):
 
-- `POST /garden.v1.GardenService/InsertSensorData` — Hub-only, writes sensor readings
-- `POST /garden.v1.GardenService/GetSummary` — Any authenticated user, reads aggregated data
-- `POST /auth.v1.AuthService/Register` — Public, creates user account
-- `POST /auth.v1.AuthService/Login` — Public, returns JWT token
-- `POST /auth.v1.AuthService/CreateHubToken` — Authenticated, creates hub device token
-- `POST /auth.v1.AuthService/ListHubTokens` — Authenticated, lists hub tokens
-- `POST /auth.v1.AuthService/RevokeHubToken` — Authenticated, revokes a hub token
+- `POST /garden.v2.GardenService/InsertSensorData` — Hub-only, writes sensor readings (auto-binds nodes to hub)
+- `POST /garden.v2.GardenService/GetSummary` — User-only, reads aggregated data scoped to caller's hubs (optional `hub_id` filter; `hub_id` returned per summary)
+- `POST /auth.v2.AuthService/Register` — Public, creates user account
+- `POST /auth.v2.AuthService/Login` — Public, returns user JWT
+- `POST /auth.v2.AuthService/AssociateHub` — User, binds a hub to caller (post-QR-scan)
+- `POST /auth.v2.AuthService/ListHubs` — User, lists caller's hubs
+- `POST /auth.v2.AuthService/RevokeHub` — User, deletes hub token row (unblocks re-claim)
+- `POST /auth.v2.AuthService/ClaimHubToken` — Public (hub-initiated), hub exchanges `device_id` + `hub_secret` for hub JWT (claim-once)
 
 Live API docs: https://harvesthub-gardening-tool.github.io/protos/
 

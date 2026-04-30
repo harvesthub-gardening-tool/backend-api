@@ -7,8 +7,8 @@ import (
 	"os"
 
 	"connectrpc.com/connect"
-	authv1connect "github.com/harvesthub-gardening-tool/protos-go/auth/v1/authv1connect"
-	"github.com/harvesthub-gardening-tool/protos-go/garden/v1/gardenv1connect"
+	authv2connect "github.com/harvesthub-gardening-tool/protos-go/auth/v2/authv2connect"
+	"github.com/harvesthub-gardening-tool/protos-go/garden/v2/gardenv2connect"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 	"gorm.io/driver/postgres"
@@ -62,24 +62,24 @@ func main() {
 
 	// Create services (both share the same GORM handle)
 	gardenSvc := service.NewGardenService(gormDB)
-	authSvc := service.NewAuthService(authService)
+	authSvcV2 := service.NewAuthServiceV2(authService)
 
 	// Create mux and register services
 	mux := http.NewServeMux()
 
-	// Register GardenService with authentication
-	gardenPath, gardenHandler := gardenv1connect.NewGardenServiceHandler(
+	// Register GardenService v2 with authentication
+	gardenPath, gardenHandler := gardenv2connect.NewGardenServiceHandler(
 		gardenSvc,
 		connect.WithInterceptors(authInterceptor),
 	)
 	mux.Handle(gardenPath, gardenHandler)
 
-	// Register AuthService — interceptor skips auth for Register/Login internally
-	authPath, authHandler := authv1connect.NewAuthServiceHandler(
-		authSvc,
+	// Register AuthService v2 — interceptor skips auth for Register/Login/ClaimHubToken internally
+	authV2Path, authV2Handler := authv2connect.NewAuthServiceHandler(
+		authSvcV2,
 		connect.WithInterceptors(authInterceptor),
 	)
-	mux.Handle(authPath, authHandler)
+	mux.Handle(authV2Path, authV2Handler)
 
 	// Add CORS middleware
 	corsHandler := cors(mux)

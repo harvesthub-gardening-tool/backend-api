@@ -69,9 +69,12 @@ DATABASE_URL="postgres://user:password@localhost:5432/garden_db?sslmode=disable"
 
 All endpoints use Connect protocol (gRPC-compatible):
 
-### Insert Sensor Data
+All endpoints require a JWT in the `Authorization: Bearer <token>` header except `auth.v2/Register`, `auth.v2/Login`, and `auth.v2/ClaimHubToken`.
+
+### Insert Sensor Data *(requires hub JWT)*
 ```bash
-curl -X POST http://localhost:8080/garden.v1.GardenService/InsertSensorData \
+curl -X POST http://localhost:8080/garden.v2.GardenService/InsertSensorData \
+  -H "Authorization: Bearer <hub-jwt>" \
   -H "Content-Type: application/json" \
   -d '{
     "node_id": "sensor_01",
@@ -82,15 +85,20 @@ curl -X POST http://localhost:8080/garden.v1.GardenService/InsertSensorData \
   }'
 ```
 
-### Get Summary
+### Get Summary *(requires user JWT)*
 ```bash
-curl -X POST http://localhost:8080/garden.v1.GardenService/GetSummary \
+curl -X POST http://localhost:8080/garden.v2.GardenService/GetSummary \
+  -H "Authorization: Bearer <user-jwt>" \
   -H "Content-Type: application/json" \
   -d '{
     "node_id": "sensor_01",
     "hours": 24
   }'
 ```
+
+Optional `hub_id` field narrows results to a single hub; each `SensorSummary` includes the `hub_id` it belongs to.
+
+See `docs/HUB_PROVISIONING.md` for the full QR-code-based hub provisioning flow.
 
 ## Protocol Buffers Integration
 
@@ -102,8 +110,10 @@ The proto-generated code is imported as a Go module:
 
 ```go
 import (
-    gardenv1 "github.com/harvesthub-gardening-tool/protos-go/garden/v1"
-    "github.com/harvesthub-gardening-tool/protos-go/garden/v1/gardenv1connect"
+    gardenv2 "github.com/harvesthub-gardening-tool/protos-go/garden/v2"
+    "github.com/harvesthub-gardening-tool/protos-go/garden/v2/gardenv2connect"
+    authv2 "github.com/harvesthub-gardening-tool/protos-go/auth/v2"
+    "github.com/harvesthub-gardening-tool/protos-go/auth/v2/authv2connect"
 )
 ```
 

@@ -67,7 +67,10 @@ func NewOrLoadJWTManager(keyPath string) (*JWTManager, error) {
 
 // GenerateToken signs a new JWT with the given identity and expiry duration.
 // Pass an empty username for service account (Hub device) tokens.
-func (m *JWTManager) GenerateToken(userID, username string, expiry time.Duration) (string, error) {
+// Pass a non-empty hubID for hub tokens issued by auth.v2/ClaimHubToken; this
+// binds the token to a specific hub for downstream ownership checks. Pass "" for
+// user tokens.
+func (m *JWTManager) GenerateToken(userID, username, hubID string, expiry time.Duration) (string, error) {
 	if userID == "" {
 		return "", errors.New("userID cannot be empty")
 	}
@@ -79,6 +82,7 @@ func (m *JWTManager) GenerateToken(userID, username string, expiry time.Duration
 	claims := Claims{
 		UserID:   userID,
 		Username: username,
+		HubID:    hubID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(now.Add(expiry)),
 			IssuedAt:  jwt.NewNumericDate(now),

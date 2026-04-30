@@ -1,5 +1,7 @@
 ### Variables
-@API_URL = http://localhost:8080
+# @API_URL = http://localhost:8080
+@API_URL = https://harvest-hub-api-secure.grimmely.com
+@USER_TOKEN = eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoiMSIsInVzZXJuYW1lIjoidGVzdEBleGFtcGxlLmNvbSIsImV4cCI6MTc3NzU4MzUyNSwibmJmIjoxNzc3NDk3MTI1LCJpYXQiOjE3Nzc0OTcxMjV9.JZI17ndLWMZN9jM7ZEV86plcYC5UjBI_gQLDw3wDe5xrwRw9fJxtSNHsv3EBRfpKnctK0MZWzWRVkyJ4YoFuszf9EszoOxZbxMTk8NrY_SQ0Y3BqrhQVcN3HkTfc2Dl-AI58mCSAH9gg8Q1JuDtcw76MxOT4Gx11CeRsEzJO9CI70trxwpCiPKIOVzXI2TmQdibkC4zoN7XKn41VKsmQC-6gP559wjdJNHDpDNmU6Jxzu_IYbTO-dVP46HBeEf2AJRnV2Q1xSVe-av8fSB0MRjLGqZ_c2yJPuUXUgfsW1LjxbUzbOt3L6LHUdKDB7ffHjiNv-_z7FCVQg98RavOJEg
 
 ###
 # SETUP: Run Register/Login in 01-auth.http first.
@@ -7,7 +9,7 @@
 
 ###
 # Get Summary - Default (24 hours, all nodes)
-POST {{API_URL}}/garden.v1.GardenService/GetSummary HTTP/1.1
+POST {{API_URL}}/garden.v2.GardenService/GetSummary HTTP/1.1
 Content-Type: application/json
 Authorization: Bearer {{USER_TOKEN}}
 
@@ -15,7 +17,7 @@ Authorization: Bearer {{USER_TOKEN}}
 
 ###
 # Get Summary - Specific Node
-POST {{API_URL}}/garden.v1.GardenService/GetSummary HTTP/1.1
+POST {{API_URL}}/garden.v2.GardenService/GetSummary HTTP/1.1
 Content-Type: application/json
 Authorization: Bearer {{USER_TOKEN}}
 
@@ -25,7 +27,7 @@ Authorization: Bearer {{USER_TOKEN}}
 
 ###
 # Get Summary - Custom Time Window (6 hours)
-POST {{API_URL}}/garden.v1.GardenService/GetSummary HTTP/1.1
+POST {{API_URL}}/garden.v2.GardenService/GetSummary HTTP/1.1
 Content-Type: application/json
 Authorization: Bearer {{USER_TOKEN}}
 
@@ -35,7 +37,7 @@ Authorization: Bearer {{USER_TOKEN}}
 
 ###
 # Get Summary - Specific Node + Custom Hours
-POST {{API_URL}}/garden.v1.GardenService/GetSummary HTTP/1.1
+POST {{API_URL}}/garden.v2.GardenService/GetSummary HTTP/1.1
 Content-Type: application/json
 Authorization: Bearer {{USER_TOKEN}}
 
@@ -47,7 +49,7 @@ Authorization: Bearer {{USER_TOKEN}}
 ###
 # Get Summary with Hub Token (should work)
 # Hub tokens can also read data
-POST {{API_URL}}/garden.v1.GardenService/GetSummary HTTP/1.1
+POST {{API_URL}}/garden.v2.GardenService/GetSummary HTTP/1.1
 Content-Type: application/json
 Authorization: Bearer {{HUB_TOKEN}}
 
@@ -58,7 +60,7 @@ Authorization: Bearer {{HUB_TOKEN}}
 
 ###
 # Get Summary - 1 hour window
-POST {{API_URL}}/garden.v1.GardenService/GetSummary HTTP/1.1
+POST {{API_URL}}/garden.v2.GardenService/GetSummary HTTP/1.1
 Content-Type: application/json
 Authorization: Bearer {{USER_TOKEN}}
 

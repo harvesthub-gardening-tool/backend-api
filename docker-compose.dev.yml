@@ -1,0 +1,20 @@
+# Local development overrides for docker-compose.
+#
+# Usage:
+#   docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# The base docker-compose.yml is consumed by Dokploy in production and must
+# stay free of host-port bindings. This override exposes service ports for
+# local testing (rest.nvim, curl) without touching prod config.
+
+services:
+  api:
+    ports:
+      - "8080:8080"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - JWT_KEY_PATH=/app
+
+  db:
+    ports:
+      - "5432:5432"

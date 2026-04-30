@@ -1,0 +1,186 @@
+### Variables
+@API_URL = http://localhost:8080
+# @API_URL = https://harvest-hub-api-secure.grimmely.com
+
+###
+# SETUP NOTES (v2 QR-code hub provisioning flow):
+#
+#   1. Register OR Login (v2)             -> captures USER_TOKEN_V2
+#   2. AssociateHub                       -> binds a hub (device_id + hub_secret) to the user
+#                                            DEVICE_ID and HUB_SECRET below simulate values
+#                                            that would normally come from a hub QR code.
+#   3. (See 05-claim-hub-token.http)      -> hub claims its JWT publicly via ClaimHubToken
+#   4. (See 06-insert-with-v2-hub.http)   -> hub uses the claimed JWT to push sensor data
+
+###
+# Register
+# Creates a new user account.
+POST {{API_URL}}/auth.v2.AuthService/Register HTTP/1.1
+Content-Type: application/json
+
+{
+  "email": "v2_test_user@example.com",
+  "password": "SecurePass123!"
+}
+
+# @lang=lua
+> {%
+local json = vim.json.decode(response.body)
+if json and json.token then
+    vim.env.USER_TOKEN_V2 = json.token
+end
+%}
+
+###
+# Login (v2)
+# Use this if the user is already registered.
+POST {{API_URL}}/auth.v2.AuthService/Login HTTP/1.1
+Content-Type: application/json
+
+{
+  "email": "v2_test_user@example.com",
+  "password": "SecurePass123!"
+}
+
+# @lang=lua
+> {%
+local json = vim.json.decode(response.body)
+if json and json.token then
+    vim.env.USER_TOKEN_V2 = json.token
+end
+%}
+
+###
+# AssociateHub - happy path
+# Binds a physical hub (identified by device_id + hub_secret from its QR code)
+# to the authenticated user. The hub is created in unclaimed state.
+# device_id and hub_secret here simulate what the firmware would print on its QR.
+POST {{API_URL}}/auth.v2.AuthService/AssociateHub HTTP/1.1
+Authorization: Bearer {{USER_TOKEN_V2}}
+Content-Type: application/json
+
+{
+  "device_id": "hub-uuid-0001-aaaa-bbbb-cccc",
+  "hub_secret": "qrsecret-0001-supersecretvalue",
+  "hub_name": "garden-hub-1"
+}
+
+# @lang=lua
+> {%
+local json = vim.json.decode(response.body)
+if json and json.hub_id then
+    vim.env.HUB_ID_V2 = json.hub_id
+end
+vim.env.DEVICE_ID = "hub-uuid-0001-aaaa-bbbb-cccc"
+vim.env.HUB_SECRET = "qrsecret-0001-supersecretvalue"
+%}
+
+###
+# AssociateHub - duplicate device_id (should fail: AlreadyExists)
+# Each hub can be associated with exactly one user; re-associating the same
+# device_id (even by a different user) must be rejected.
+POST {{API_URL}}/auth.v2.AuthService/AssociateHub HTTP/1.1
+Authorization: Bearer {{USER_TOKEN_V2}}
+Content-Type: application/json
+
+{
+  "device_id": "hub-uuid-0001-aaaa-bbbb-cccc",
+  "hub_secret": "qrsecret-0001-supersecretvalue",
+  "hub_name": "duplicate-attempt"
+}
+
+###
+# AssociateHub - missing device_id (should fail: InvalidArgument)
+POST {{API_URL}}/auth.v2.AuthService/AssociateHub HTTP/1.1
+Authorization: Bearer {{USER_TOKEN_V2}}
+Content-Type: application/json
+
+{
+  "device_id": "",
+  "hub_secret": "qrsecret-xxxx",
+  "hub_name": "no-device-id"
+}
+
+###
+# AssociateHub - missing hub_secret (should fail: InvalidArgument)
+POST {{API_URL}}/auth.v2.AuthService/AssociateHub HTTP/1.1
+Authorization: Bearer {{USER_TOKEN_V2}}
+Content-Type: application/json
+
+{
+  "device_id": "hub-uuid-0002-dddd-eeee-ffff",
+  "hub_secret": "",
+  "hub_name": "no-secret"
+}
+
+###
+# AssociateHub - no auth (should fail: Unauthenticated)
+POST {{API_URL}}/auth.v2.AuthService/AssociateHub HTTP/1.1
+Content-Type: application/json
+
+{
+  "device_id": "hub-uuid-0003-1111-2222-3333",
+  "hub_secret": "qrsecret-0003",
+  "hub_name": "unauth-hub"
+}
+
+###
+# AssociateHub - second hub for same user (should succeed)
+# A user can own multiple hubs.
+POST {{API_URL}}/auth.v2.AuthService/AssociateHub HTTP/1.1
+Authorization: Bearer {{USER_TOKEN_V2}}
+Content-Type: application/json
+
+{
+  "device_id": "hub-uuid-0004-greenhouse",
+  "hub_secret": "qrsecret-0004-greenhouse",
+  "hub_name": "greenhouse-hub"
+}
+
+###
+# ListHubs - happy path
+# Returns all hubs owned by the authenticated user, including their
+# claim/revoke status.
+POST {{API_URL}}/auth.v2.AuthService/ListHubs HTTP/1.1
+Authorization: Bearer {{USER_TOKEN_V2}}
+Content-Type: application/json
+
+{}
+
+###
+# ListHubs - no auth (should fail: Unauthenticated)
+POST {{API_URL}}/auth.v2.AuthService/ListHubs HTTP/1.1
+Content-Type: application/json
+
+{}
+
+###
+# RevokeHub - happy path
+# Replace HUB_ID_V2 with an actual hub_id from ListHubs if needed.
+# Revocation is idempotent on already-revoked hubs.
+POST {{API_URL}}/auth.v2.AuthService/RevokeHub HTTP/1.1
+Authorization: Bearer {{USER_TOKEN_V2}}
+Content-Type: application/json
+
+{
+  "hub_id": "1"
+}
+
+###
+# RevokeHub - non-existent hub (should fail: NotFound)
+POST {{API_URL}}/auth.v2.AuthService/RevokeHub HTTP/1.1
+Authorization: Bearer {{USER_TOKEN_V2}}
+Content-Type: application/json
+
+{
+  "hub_id": "999999"
+}
+
+###
+# RevokeHub - no auth (should fail: Unauthenticated)
+POST {{API_URL}}/auth.v2.AuthService/RevokeHub HTTP/1.1
+Content-Type: application/json
+
+{
+  "hub_id": "1"
+}

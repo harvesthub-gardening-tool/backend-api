@@ -4,7 +4,7 @@
 ###
 # No Authorization Header
 # Expected: 401 Unauthenticated - "missing authorization header"
-POST {{API_URL}}/garden.v1.GardenService/GetSummary HTTP/1.1
+POST {{API_URL}}/garden.v2.GardenService/GetSummary HTTP/1.1
 Content-Type: application/json
 
 {}
@@ -12,7 +12,7 @@ Content-Type: application/json
 ###
 # Invalid Token
 # Expected: 401 Unauthenticated - token validation failed
-POST {{API_URL}}/garden.v1.GardenService/GetSummary HTTP/1.1
+POST {{API_URL}}/garden.v2.GardenService/GetSummary HTTP/1.1
 Content-Type: application/json
 Authorization: Bearer invalid_token_here
 
@@ -21,7 +21,7 @@ Authorization: Bearer invalid_token_here
 ###
 # Malformed Bearer Token
 # Expected: 401 Unauthenticated
-POST {{API_URL}}/garden.v1.GardenService/GetSummary HTTP/1.1
+POST {{API_URL}}/garden.v2.GardenService/GetSummary HTTP/1.1
 Content-Type: application/json
 Authorization: NotBearer xyz123
 
@@ -31,7 +31,7 @@ Authorization: NotBearer xyz123
 # User Trying to Insert (should fail - permission denied)
 # Expected: 403 Permission Denied - "only hub can insert data"
 # Requires USER_TOKEN - run Register/Login in 01-auth.http first
-POST {{API_URL}}/garden.v1.GardenService/InsertSensorData HTTP/1.1
+POST {{API_URL}}/garden.v2.GardenService/InsertSensorData HTTP/1.1
 Content-Type: application/json
 Authorization: Bearer {{USER_TOKEN}}
 
