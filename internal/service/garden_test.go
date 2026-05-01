@@ -420,3 +420,149 @@ func TestGetSummary_ZeroHoursDefaultsTo24(t *testing.T) {
 		t.Errorf("unmet expectations: %v", err)
 	}
 }
+
+func TestListProbesForHubName(t *testing.T) {
+	hubCols := []string{"id", "user_id", "name"}
+
+	tests := []struct {
+		name       string
+		ctx        context.Context
+		req        *gardenv2.ListProbesForHubNameRequest
+		mockSetup  func(sqlmock.Sqlmock)
+		wantProbes []string
+		wantErr    bool
+		wantCode   connect.Code
+	}{
+		{
+			name: "success: hub with two probes returns both",
+			ctx:  userCtx("7"),
+			req:  &gardenv2.ListProbesForHubNameRequest{HubName: "Greenhouse"},
+			mockSetup: func(mock sqlmock.Sqlmock) {
+				mock.ExpectQuery(`SELECT .* FROM "hubs"`).
+					WithArgs("Greenhouse", int64(7), 1).
+					WillReturnRows(sqlmock.NewRows(hubCols).AddRow(int64(42), int64(7), "Greenhouse"))
+				mock.ExpectQuery(`SELECT .* FROM "sensor_nodes"`).
+					WithArgs(int64(42)).
+					WillReturnRows(sqlmock.NewRows(sensorNodeCols).
+						AddRow(1, "probe-A", int64(42), "", "", time.Now(), time.Now()).
+						AddRow(2, "probe-B", int64(42), "", "", time.Now(), time.Now()))
+			},
+			wantProbes: []string{"probe-A", "probe-B"},
+		},
+		{
+			name: "success: hub with no probes returns empty list",
+			ctx:  userCtx("7"),
+			req:  &gardenv2.ListProbesForHubNameRequest{HubName: "EmptyHub"},
+			mockSetup: func(mock sqlmock.Sqlmock) {
+				mock.ExpectQuery(`SELECT .* FROM "hubs"`).
+					WithArgs("EmptyHub", int64(7), 1).
+					WillReturnRows(sqlmock.NewRows(hubCols).AddRow(int64(99), int64(7), "EmptyHub"))
+				mock.ExpectQuery(`SELECT .* FROM "sensor_nodes"`).
+					WithArgs(int64(99)).
+					WillReturnRows(sqlmock.NewRows(sensorNodeCols))
+			},
+			wantProbes: []string{},
+		},
+		{
+			name: "not found: hub name not owned by user",
+			ctx:  userCtx("7"),
+			req:  &gardenv2.ListProbesForHubNameRequest{HubName: "Ghost"},
+			mockSetup: func(mock sqlmock.Sqlmock) {
+				mock.ExpectQuery(`SELECT .* FROM "hubs"`).
+					WithArgs("Ghost", int64(7), 1).
+					WillReturnRows(sqlmock.NewRows(hubCols))
+			},
+			wantErr:  true,
+			wantCode: connect.CodeNotFound,
+		},
+		{
+			name:      "invalid argument: empty hub_name",
+			ctx:       userCtx("7"),
+			req:       &gardenv2.ListProbesForHubNameRequest{HubName: ""},
+			mockSetup: func(_ sqlmock.Sqlmock) {},
+			wantErr:   true,
+			wantCode:  connect.CodeInvalidArgument,
+		},
+		{
+			name:      "permission denied: service account token rejected",
+			ctx:       hubCtx("7", "42"),
+			req:       &gardenv2.ListProbesForHubNameRequest{HubName: "Greenhouse"},
+			mockSetup: func(_ sqlmock.Sqlmock) {},
+			wantErr:   true,
+			wantCode:  connect.CodePermissionDenied,
+		},
+		{
+			name:      "unauthenticated: no auth info in context",
+			ctx:       context.Background(),
+			req:       &gardenv2.ListProbesForHubNameRequest{HubName: "Greenhouse"},
+			mockSetup: func(_ sqlmock.Sqlmock) {},
+			wantErr:   true,
+			wantCode:  connect.CodeUnauthenticated,
+		},
+		{
+			name: "internal: hub lookup db error propagates",
+			ctx:  userCtx("7"),
+			req:  &gardenv2.ListProbesForHubNameRequest{HubName: "Greenhouse"},
+			mockSetup: func(mock sqlmock.Sqlmock) {
+				mock.ExpectQuery(`SELECT .* FROM "hubs"`).
+					WithArgs("Greenhouse", int64(7), 1).
+					WillReturnError(sqlmock.ErrCancelled)
+			},
+			wantErr:  true,
+			wantCode: connect.CodeInternal,
+		},
+		{
+			name: "internal: node listing db error propagates",
+			ctx:  userCtx("7"),
+			req:  &gardenv2.ListProbesForHubNameRequest{HubName: "Greenhouse"},
+			mockSetup: func(mock sqlmock.Sqlmock) {
+				mock.ExpectQuery(`SELECT .* FROM "hubs"`).
+					WithArgs("Greenhouse", int64(7), 1).
+					WillReturnRows(sqlmock.NewRows(hubCols).AddRow(int64(42), int64(7), "Greenhouse"))
+				mock.ExpectQuery(`SELECT .* FROM "sensor_nodes"`).
+					WithArgs(int64(42)).
+					WillReturnError(sqlmock.ErrCancelled)
+			},
+			wantErr:  true,
+			wantCode: connect.CodeInternal,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db, mock := newTestDB(t)
+			tt.mockSetup(mock)
+
+			svc := service.NewGardenService(db)
+			resp, err := svc.ListProbesForHubName(tt.ctx, connect.NewRequest(tt.req))
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if connect.CodeOf(err) != tt.wantCode {
+					t.Errorf("expected %v, got %v: %v", tt.wantCode, connect.CodeOf(err), err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			got := make([]string, len(resp.Msg.Probes))
+			for i, p := range resp.Msg.Probes {
+				got[i] = p.NodeId
+			}
+			if len(got) != len(tt.wantProbes) {
+				t.Fatalf("got %d probes, want %d: %v", len(got), len(tt.wantProbes), got)
+			}
+			for i, want := range tt.wantProbes {
+				if got[i] != want {
+					t.Errorf("probe[%d]: got %q, want %q", i, got[i], want)
+				}
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Errorf("unmet expectations: %v", err)
+			}
+		})
+	}
+}

@@ -226,3 +226,49 @@ ORDER BY interval DESC`
 		Summaries: summaries,
 	}), nil
 }
+
+// ListProbesForHubName returns all sensor nodes bound to the hub identified by
+// name among the hubs owned by the authenticated user. Only user tokens are
+// accepted; hub (service-account) tokens are rejected.
+func (s *GardenService) ListProbesForHubName(
+	ctx context.Context,
+	req *connect.Request[gardenv2.ListProbesForHubNameRequest],
+) (*connect.Response[gardenv2.ListProbesForHubNameResponse], error) {
+	if authctx.IsServiceAccount(ctx) {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("only user tokens may list probes"))
+	}
+
+	userIDStr := authctx.GetUserID(ctx)
+	if userIDStr == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing user id in token"))
+	}
+	var userID uint
+	if _, err := fmt.Sscan(userIDStr, &userID); err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("invalid user id in token: %w", err))
+	}
+
+	if req.Msg.HubName == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("hub_name is required"))
+	}
+
+	var hub auth.Hub
+	err := s.db.WithContext(ctx).Where("name = ? AND user_id = ?", req.Msg.HubName, userID).First(&hub).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("hub %q not found", req.Msg.HubName))
+	}
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to look up hub: %w", err))
+	}
+
+	var nodes []auth.SensorNode
+	if err := s.db.WithContext(ctx).Where("hub_id = ?", hub.ID).Find(&nodes).Error; err != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to list probes: %w", err))
+	}
+
+	probes := make([]*gardenv2.ProbeInfo, len(nodes))
+	for i, n := range nodes {
+		probes[i] = &gardenv2.ProbeInfo{NodeId: n.NodeID}
+	}
+
+	return connect.NewResponse(&gardenv2.ListProbesForHubNameResponse{Probes: probes}), nil
+}
