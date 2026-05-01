@@ -1,0 +1,73 @@
+### Variables
+@API_URL = http://localhost:8080
+@USER_TOKEN = {{USER_TOKEN_V2}}
+@HUB_TOKEN = {{HUB_TOKEN_V2}}
+
+###
+# SETUP: Run 04-auth-v2.http (Register/Login + AssociateHub) first.
+# USER_TOKEN_V2 is captured automatically from those responses.
+# AssociateHub creates "garden-hub-1" and "greenhouse-hub" by default.
+# To see probes listed, run 02-insert-sensor-data.http (or 06-insert-with-v2-hub.http)
+# so that at least one sensor_node gets bound to the hub.
+
+###
+# ListProbesForHubName - happy path
+# Returns all sensor nodes bound to the named hub owned by the authenticated user.
+POST {{API_URL}}/garden.v2.GardenService/ListProbesForHubName HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer {{USER_TOKEN}}
+
+{
+  "hub_name": "garden-hub-1"
+}
+
+###
+# ListProbesForHubName - second hub (should succeed, may return empty list)
+# A hub with no data pushes yet will return an empty probes array.
+POST {{API_URL}}/garden.v2.GardenService/ListProbesForHubName HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer {{USER_TOKEN}}
+
+{
+  "hub_name": "greenhouse-hub"
+}
+
+###
+# ListProbesForHubName - hub name not owned by user (should fail: NotFound)
+POST {{API_URL}}/garden.v2.GardenService/ListProbesForHubName HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer {{USER_TOKEN}}
+
+{
+  "hub_name": "hub-that-does-not-exist"
+}
+
+###
+# ListProbesForHubName - empty hub_name (should fail: InvalidArgument)
+POST {{API_URL}}/garden.v2.GardenService/ListProbesForHubName HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer {{USER_TOKEN}}
+
+{
+  "hub_name": ""
+}
+
+###
+# ListProbesForHubName - hub token (should fail: PermissionDenied)
+# Only user JWTs are allowed; service-account (hub) tokens are rejected.
+POST {{API_URL}}/garden.v2.GardenService/ListProbesForHubName HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer {{HUB_TOKEN}}
+
+{
+  "hub_name": "garden-hub-1"
+}
+
+###
+# ListProbesForHubName - no auth (should fail: Unauthenticated)
+POST {{API_URL}}/garden.v2.GardenService/ListProbesForHubName HTTP/1.1
+Content-Type: application/json
+
+{
+  "hub_name": "garden-hub-1"
+}
