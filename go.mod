@@ -6,7 +6,7 @@ require (
 	connectrpc.com/connect v1.19.1
 	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/golang-jwt/jwt/v5 v5.3.0
-	github.com/harvesthub-gardening-tool/protos-go v0.0.0-20260503201512-08fe390e3119
+	github.com/harvesthub-gardening-tool/protos-go v0.0.0-20260503202045-5420c1cbc6f8
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.47.0
 	golang.org/x/net v0.49.0
