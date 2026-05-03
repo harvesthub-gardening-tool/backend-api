@@ -227,6 +227,72 @@ ORDER BY interval DESC`
 	}), nil
 }
 
+// lastSensorRow is the scan target for GetLast's single-row query.
+type lastSensorRow struct {
+	NodeID          string    `gorm:"column:node_id"`
+	Time            time.Time `gorm:"column:time"`
+	AirTemperature  float64   `gorm:"column:air_temperature"`
+	AirPressure     float64   `gorm:"column:air_pressure"`
+	AirHumidity     float64   `gorm:"column:air_humidity"`
+	SoilTemperature float64   `gorm:"column:soil_temperature"`
+	SoilHumidity    float64   `gorm:"column:soil_humidity"`
+}
+
+// GetLast returns the most recent raw sensor reading for a probe owned by the
+// caller. Ownership is enforced via JOIN (sensor_nodes → hubs); probes belonging
+// to other users return NotFound. Only user tokens are accepted; hub tokens are
+// rejected with PermissionDenied.
+func (s *GardenService) GetLast(
+	ctx context.Context,
+	req *connect.Request[gardenv2.GetLastRequest],
+) (*connect.Response[gardenv2.GetLastResponse], error) {
+	if authctx.IsServiceAccount(ctx) {
+		return nil, connect.NewError(connect.CodePermissionDenied, errors.New("only user tokens may query sensor readings"))
+	}
+
+	userIDStr := authctx.GetUserID(ctx)
+	if userIDStr == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("missing user id in token"))
+	}
+	var userID uint
+	if _, err := fmt.Sscan(userIDStr, &userID); err != nil {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("invalid user id in token: %w", err))
+	}
+
+	if req.Msg.NodeId == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, errors.New("node_id is required"))
+	}
+
+	var rows []lastSensorRow
+	result := s.db.WithContext(ctx).Raw(`
+SELECT sd.node_id, sd.time, sd.air_temperature, sd.air_pressure, sd.air_humidity, sd.soil_temperature, sd.soil_humidity
+FROM sensor_data sd
+JOIN sensor_nodes sn ON sn.node_id = sd.node_id
+JOIN hubs h          ON h.id = sn.hub_id
+WHERE sd.node_id = ? AND h.user_id = ?
+ORDER BY sd.time DESC
+LIMIT 1`, req.Msg.NodeId, userID).Scan(&rows)
+	if result.Error != nil {
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("query failed: %w", result.Error))
+	}
+	if len(rows) == 0 {
+		return nil, connect.NewError(connect.CodeNotFound, fmt.Errorf("no data found for probe %q", req.Msg.NodeId))
+	}
+
+	row := rows[0]
+	return connect.NewResponse(&gardenv2.GetLastResponse{
+		Reading: &gardenv2.SensorReading{
+			NodeId:          row.NodeID,
+			Time:            row.Time.UnixMilli(),
+			AirTemperature:  row.AirTemperature,
+			AirPressure:     row.AirPressure,
+			AirHumidity:     row.AirHumidity,
+			SoilTemperature: row.SoilTemperature,
+			SoilHumidity:    row.SoilHumidity,
+		},
+	}), nil
+}
+
 // ListProbesForHubName returns all sensor nodes bound to the hub identified by
 // name among the hubs owned by the authenticated user. Only user tokens are
 // accepted; hub (service-account) tokens are rejected.

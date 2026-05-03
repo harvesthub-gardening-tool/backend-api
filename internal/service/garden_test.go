@@ -421,6 +421,112 @@ func TestGetSummary_ZeroHoursDefaultsTo24(t *testing.T) {
 	}
 }
 
+func TestGetLast(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	cols := []string{"node_id", "time", "air_temperature", "air_pressure", "air_humidity", "soil_temperature", "soil_humidity"}
+
+	tests := []struct {
+		name      string
+		ctx       context.Context
+		req       *gardenv2.GetLastRequest
+		mockSetup func(sqlmock.Sqlmock)
+		wantErr   bool
+		wantCode  connect.Code
+	}{
+		{
+			name: "success: returns most recent reading for owned probe",
+			ctx:  userCtx("7"),
+			req:  &gardenv2.GetLastRequest{NodeId: "sensor-01"},
+			mockSetup: func(mock sqlmock.Sqlmock) {
+				mock.ExpectQuery("FROM sensor_data sd").
+					WithArgs("sensor-01", int64(7)).
+					WillReturnRows(sqlmock.NewRows(cols).
+						AddRow("sensor-01", now, 22.5, 101325.0, 65.0, 19.5, 45.0))
+			},
+		},
+		{
+			name: "not found: probe does not exist or is not owned by user",
+			ctx:  userCtx("7"),
+			req:  &gardenv2.GetLastRequest{NodeId: "ghost-probe"},
+			mockSetup: func(mock sqlmock.Sqlmock) {
+				mock.ExpectQuery("FROM sensor_data sd").
+					WithArgs("ghost-probe", int64(7)).
+					WillReturnRows(sqlmock.NewRows(cols))
+			},
+			wantErr:  true,
+			wantCode: connect.CodeNotFound,
+		},
+		{
+			name:      "invalid argument: empty node_id",
+			ctx:       userCtx("7"),
+			req:       &gardenv2.GetLastRequest{NodeId: ""},
+			mockSetup: func(_ sqlmock.Sqlmock) {},
+			wantErr:   true,
+			wantCode:  connect.CodeInvalidArgument,
+		},
+		{
+			name:      "permission denied: service account token rejected",
+			ctx:       hubCtx("7", "42"),
+			req:       &gardenv2.GetLastRequest{NodeId: "sensor-01"},
+			mockSetup: func(_ sqlmock.Sqlmock) {},
+			wantErr:   true,
+			wantCode:  connect.CodePermissionDenied,
+		},
+		{
+			name:      "unauthenticated: no auth info in context",
+			ctx:       context.Background(),
+			req:       &gardenv2.GetLastRequest{NodeId: "sensor-01"},
+			mockSetup: func(_ sqlmock.Sqlmock) {},
+			wantErr:   true,
+			wantCode:  connect.CodeUnauthenticated,
+		},
+		{
+			name: "internal: db query error propagates",
+			ctx:  userCtx("7"),
+			req:  &gardenv2.GetLastRequest{NodeId: "sensor-01"},
+			mockSetup: func(mock sqlmock.Sqlmock) {
+				mock.ExpectQuery("FROM sensor_data sd").
+					WithArgs("sensor-01", int64(7)).
+					WillReturnError(sqlmock.ErrCancelled)
+			},
+			wantErr:  true,
+			wantCode: connect.CodeInternal,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db, mock := newTestDB(t)
+			tt.mockSetup(mock)
+
+			svc := service.NewGardenService(db)
+			resp, err := svc.GetLast(tt.ctx, connect.NewRequest(tt.req))
+
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				if connect.CodeOf(err) != tt.wantCode {
+					t.Errorf("expected %v, got %v: %v", tt.wantCode, connect.CodeOf(err), err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if resp.Msg.Reading == nil {
+				t.Fatal("expected non-nil Reading")
+			}
+			if resp.Msg.Reading.NodeId != "sensor-01" {
+				t.Errorf("NodeId: got %q, want %q", resp.Msg.Reading.NodeId, "sensor-01")
+			}
+			if err := mock.ExpectationsWereMet(); err != nil {
+				t.Errorf("unmet expectations: %v", err)
+			}
+		})
+	}
+}
+
 func TestListProbesForHubName(t *testing.T) {
 	hubCols := []string{"id", "user_id", "name"}
 

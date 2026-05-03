@@ -1,0 +1,60 @@
+### Variables
+@API_URL = http://localhost:8080
+@USER_TOKEN = {{USER_TOKEN_V2}}
+@HUB_TOKEN = {{HUB_TOKEN_V2}}
+
+###
+# SETUP: Run 04-auth-v2.http (Register/Login) first.
+# Run 06-insert-with-v2-hub.http to ensure sensor-01 has data.
+# USER_TOKEN_V2 and HUB_TOKEN_V2 are captured automatically.
+
+###
+# GetLast - happy path
+# Returns the single most recent raw reading for the probe.
+POST {{API_URL}}/garden.v2.GardenService/GetLast HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer {{USER_TOKEN}}
+
+{
+  "node_id": "sensor-01"
+}
+
+###
+# GetLast - probe with no data or not owned by user (should fail: NotFound)
+POST {{API_URL}}/garden.v2.GardenService/GetLast HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer {{USER_TOKEN}}
+
+{
+  "node_id": "probe-that-does-not-exist"
+}
+
+###
+# GetLast - empty node_id (should fail: InvalidArgument)
+POST {{API_URL}}/garden.v2.GardenService/GetLast HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer {{USER_TOKEN}}
+
+{
+  "node_id": ""
+}
+
+###
+# GetLast - hub token (should fail: PermissionDenied)
+# Only user JWTs are allowed; service-account (hub) tokens are rejected.
+POST {{API_URL}}/garden.v2.GardenService/GetLast HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer {{HUB_TOKEN}}
+
+{
+  "node_id": "sensor-01"
+}
+
+###
+# GetLast - no auth (should fail: Unauthenticated)
+POST {{API_URL}}/garden.v2.GardenService/GetLast HTTP/1.1
+Content-Type: application/json
+
+{
+  "node_id": "sensor-01"
+}
