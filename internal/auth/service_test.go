@@ -220,6 +220,78 @@ func TestAuthService_LoginUser(t *testing.T) {
 	})
 }
 
+func TestAuthService_ChangeEmail(t *testing.T) {
+	service, jwtManager := setupTestService(t)
+	ctx := context.Background()
+
+	userID, err := service.RegisterUser(ctx, "email-change@example.com", "password123")
+	require.NoError(t, err)
+	_, err = service.RegisterUser(ctx, "taken@example.com", "password123")
+	require.NoError(t, err)
+
+	t.Run("updates email and returns refreshed token", func(t *testing.T) {
+		token, err := service.ChangeEmail(ctx, userID, "updated-email@example.com", "password123")
+		require.NoError(t, err)
+		assert.NotEmpty(t, token)
+
+		var user User
+		require.NoError(t, service.db.First(&user, userID).Error)
+		assert.Equal(t, "updated-email@example.com", user.Email)
+
+		claims, err := jwtManager.ValidateToken(token)
+		require.NoError(t, err)
+		assert.Equal(t, userID, claims.UserID)
+		assert.Equal(t, "updated-email@example.com", claims.Username)
+	})
+
+	t.Run("rejects invalid email", func(t *testing.T) {
+		token, err := service.ChangeEmail(ctx, userID, "not-an-email", "password123")
+		assert.ErrorIs(t, err, ErrInvalidEmail)
+		assert.Empty(t, token)
+	})
+
+	t.Run("rejects duplicate email", func(t *testing.T) {
+		token, err := service.ChangeEmail(ctx, userID, "taken@example.com", "password123")
+		assert.ErrorIs(t, err, ErrDuplicateEmail)
+		assert.Empty(t, token)
+	})
+
+	t.Run("rejects incorrect current password", func(t *testing.T) {
+		token, err := service.ChangeEmail(ctx, userID, "another-email@example.com", "wrongpassword")
+		assert.ErrorIs(t, err, ErrInvalidCredentials)
+		assert.Empty(t, token)
+	})
+}
+
+func TestAuthService_ChangePassword(t *testing.T) {
+	service, _ := setupTestService(t)
+	ctx := context.Background()
+
+	userID, err := service.RegisterUser(ctx, "password-change@example.com", "password123")
+	require.NoError(t, err)
+
+	t.Run("updates password hash", func(t *testing.T) {
+		require.NoError(t, service.ChangePassword(ctx, userID, "password123", "newpass123"))
+
+		_, err := service.LoginUser(ctx, "password-change@example.com", "password123")
+		assert.ErrorIs(t, err, ErrInvalidCredentials)
+
+		token, err := service.LoginUser(ctx, "password-change@example.com", "newpass123")
+		require.NoError(t, err)
+		assert.NotEmpty(t, token)
+	})
+
+	t.Run("rejects weak new password", func(t *testing.T) {
+		err := service.ChangePassword(ctx, userID, "newpass123", "short")
+		assert.ErrorIs(t, err, ErrWeakPassword)
+	})
+
+	t.Run("rejects incorrect current password", func(t *testing.T) {
+		err := service.ChangePassword(ctx, userID, "wrongpassword", "another123")
+		assert.ErrorIs(t, err, ErrInvalidCredentials)
+	})
+}
+
 // ============================================================================
 // Helper Functions Tests
 // ============================================================================

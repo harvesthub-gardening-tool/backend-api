@@ -24,6 +24,8 @@ var (
 	ErrWeakPassword = errors.New("password must be at least 8 characters long")
 	// ErrInvalidEmail is returned when email format is invalid.
 	ErrInvalidEmail = errors.New("invalid email format")
+	// ErrMissingRequiredField is returned when a required input field is empty.
+	ErrMissingRequiredField = errors.New("missing required field")
 	// ErrDeviceAlreadyAssociated is returned when AssociateHub is called with a device_id already bound to a hub.
 	ErrDeviceAlreadyAssociated = errors.New("device already associated with a hub")
 	// ErrInvalidDeviceCredentials is returned when device_id is unknown or hub_secret does not match.
@@ -113,6 +115,94 @@ func (s *AuthService) LoginUser(ctx context.Context, email, password string) (st
 		return "", fmt.Errorf("failed to generate token: %w", err)
 	}
 	return token, nil
+}
+
+// ChangeEmail updates a user's email after validating their current password.
+// It returns a refreshed JWT so clients immediately carry the new email claim.
+func (s *AuthService) ChangeEmail(ctx context.Context, userID, newEmail, currentPassword string) (string, error) {
+	if userID == "" {
+		return "", fmt.Errorf("%w: userID cannot be empty", ErrMissingRequiredField)
+	}
+	if newEmail == "" {
+		return "", fmt.Errorf("%w: email cannot be empty", ErrMissingRequiredField)
+	}
+	if _, err := mail.ParseAddress(newEmail); err != nil {
+		return "", ErrInvalidEmail
+	}
+	if currentPassword == "" {
+		return "", fmt.Errorf("%w: password cannot be empty", ErrMissingRequiredField)
+	}
+
+	var user User
+	if err := s.db.WithContext(ctx).Where("id = ?", userID).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", ErrInvalidCredentials
+		}
+		return "", fmt.Errorf("failed to load user: %w", err)
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(currentPassword)); err != nil {
+		if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
+			return "", ErrInvalidCredentials
+		}
+		return "", fmt.Errorf("failed to verify password: %w", err)
+	}
+
+	user.Email = newEmail
+	if err := s.db.WithContext(ctx).Save(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrDuplicatedKey) || isUniqueViolation(err) {
+			return "", fmt.Errorf("%w: %s", ErrDuplicateEmail, newEmail)
+		}
+		return "", fmt.Errorf("failed to update email: %w", err)
+	}
+
+	token, err := s.jwtManager.GenerateToken(fmt.Sprint(user.ID), user.Email, "", userTokenExpiry)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate token: %w", err)
+	}
+	return token, nil
+}
+
+// ChangePassword updates a user's password after validating their current password.
+func (s *AuthService) ChangePassword(ctx context.Context, userID, currentPassword, newPassword string) error {
+	if userID == "" {
+		return fmt.Errorf("%w: userID cannot be empty", ErrMissingRequiredField)
+	}
+	if currentPassword == "" {
+		return fmt.Errorf("%w: current password cannot be empty", ErrMissingRequiredField)
+	}
+	if newPassword == "" {
+		return fmt.Errorf("%w: new password cannot be empty", ErrMissingRequiredField)
+	}
+	if len(newPassword) < 8 {
+		return ErrWeakPassword
+	}
+
+	var user User
+	if err := s.db.WithContext(ctx).Where("id = ?", userID).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return ErrInvalidCredentials
+		}
+		return fmt.Errorf("failed to load user: %w", err)
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(currentPassword)); err != nil {
+		if errors.Is(err, bcrypt.ErrMismatchedHashAndPassword) {
+			return ErrInvalidCredentials
+		}
+		return fmt.Errorf("failed to verify password: %w", err)
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcryptCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	user.PasswordHash = string(hash)
+	if err := s.db.WithContext(ctx).Save(&user).Error; err != nil {
+		return fmt.Errorf("failed to update password: %w", err)
+	}
+	return nil
 }
 
 // ── v2: QR-Code Hub Provisioning ──────────────────────────────────────────────
