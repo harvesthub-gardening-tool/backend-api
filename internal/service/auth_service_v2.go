@@ -159,3 +159,55 @@ func (s *AuthServiceV2) RevokeHub(
 
 	return connect.NewResponse(&authv2.RevokeHubResponse{}), nil
 }
+
+func (s *AuthServiceV2) ChangeEmail(
+	ctx context.Context,
+	req *connect.Request[authv2.ChangeEmailRequest],
+) (*connect.Response[authv2.ChangeEmailResponse], error) {
+	userID := authctx.GetUserID(ctx)
+	username := authctx.GetUsername(ctx)
+	if userID == "" || username == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("authentication required"))
+	}
+
+	msg := req.Msg
+	token, err := s.authService.ChangeEmail(ctx, userID, msg.NewEmail, msg.CurrentPassword)
+	if err != nil {
+		if errors.Is(err, auth.ErrDuplicateEmail) {
+			return nil, connect.NewError(connect.CodeAlreadyExists, err)
+		}
+		if errors.Is(err, auth.ErrInvalidEmail) || errors.Is(err, auth.ErrMissingRequiredField) {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		if errors.Is(err, auth.ErrInvalidCredentials) {
+			return nil, connect.NewError(connect.CodeUnauthenticated, err)
+		}
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to change email: %w", err))
+	}
+
+	return connect.NewResponse(&authv2.ChangeEmailResponse{Token: token}), nil
+}
+
+func (s *AuthServiceV2) ChangePassword(
+	ctx context.Context,
+	req *connect.Request[authv2.ChangePasswordRequest],
+) (*connect.Response[authv2.ChangePasswordResponse], error) {
+	userID := authctx.GetUserID(ctx)
+	username := authctx.GetUsername(ctx)
+	if userID == "" || username == "" {
+		return nil, connect.NewError(connect.CodeUnauthenticated, errors.New("authentication required"))
+	}
+
+	msg := req.Msg
+	if err := s.authService.ChangePassword(ctx, userID, msg.CurrentPassword, msg.NewPassword); err != nil {
+		if errors.Is(err, auth.ErrWeakPassword) || errors.Is(err, auth.ErrMissingRequiredField) {
+			return nil, connect.NewError(connect.CodeInvalidArgument, err)
+		}
+		if errors.Is(err, auth.ErrInvalidCredentials) {
+			return nil, connect.NewError(connect.CodeUnauthenticated, err)
+		}
+		return nil, connect.NewError(connect.CodeInternal, fmt.Errorf("failed to change password: %w", err))
+	}
+
+	return connect.NewResponse(&authv2.ChangePasswordResponse{}), nil
+}
