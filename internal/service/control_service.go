@@ -867,6 +867,18 @@ func (s *ControlService) lockOwnedNodeTarget(tx *gorm.DB, userID uint, hubID uin
 }
 
 func (s *ControlService) ensureOwnedNodeTargetWithDB(db *gorm.DB, userID uint, hubID uint, nodeID string, lock bool) error {
+	var node auth.SensorNode
+	err := ownedNodeTargetQuery(db, userID, hubID, nodeID, lock).First(&node).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return connect.NewError(connect.CodePermissionDenied, errors.New("target node is not owned by the authenticated user"))
+	}
+	if err != nil {
+		return connect.NewError(connect.CodeInternal, fmt.Errorf("failed to verify node ownership: %w", err))
+	}
+	return nil
+}
+
+func ownedNodeTargetQuery(db *gorm.DB, userID uint, hubID uint, nodeID string, lock bool) *gorm.DB {
 	query := db.Model(&auth.SensorNode{}).
 		Joins("JOIN hubs ON hubs.id = sensor_nodes.hub_id").
 		Where("sensor_nodes.node_id = ? AND hubs.id = ? AND hubs.user_id = ?", nodeID, hubID, userID)
@@ -875,15 +887,7 @@ func (s *ControlService) ensureOwnedNodeTargetWithDB(db *gorm.DB, userID uint, h
 		query = query.Clauses(clause.Locking{Strength: "UPDATE"})
 	}
 
-	var count int64
-	err := query.Count(&count).Error
-	if err != nil {
-		return connect.NewError(connect.CodeInternal, fmt.Errorf("failed to verify node ownership: %w", err))
-	}
-	if count == 0 {
-		return connect.NewError(connect.CodePermissionDenied, errors.New("target node is not owned by the authenticated user"))
-	}
-	return nil
+	return query
 }
 
 func (s *ControlService) findIdempotentCommand(ctx context.Context, userID uint, nodeID string, idempotencyKey string) (auth.MotorCommand, bool, error) {
