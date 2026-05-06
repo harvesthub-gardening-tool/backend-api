@@ -334,7 +334,7 @@ func TestControlService_CreateMotorCommand(t *testing.T) {
 			},
 			{
 				name:      "expiry above maximum ttl",
-				expiresAt: time.Now().Add(45 * time.Second).UnixMilli(),
+				expiresAt: time.Now().Add(90 * time.Second).UnixMilli(),
 			},
 		}
 
