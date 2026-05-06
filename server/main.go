@@ -8,6 +8,7 @@ import (
 
 	"connectrpc.com/connect"
 	authv2connect "github.com/harvesthub-gardening-tool/protos-go/auth/v2/authv2connect"
+	controlv1connect "github.com/harvesthub-gardening-tool/protos-go/control/v1/controlv1connect"
 	"github.com/harvesthub-gardening-tool/protos-go/garden/v2/gardenv2connect"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -38,6 +39,8 @@ func main() {
 		&auth.HubToken{},
 		&auth.Hub{},
 		&auth.SensorNode{},
+		&auth.MotorCommand{},
+		&auth.MotorCommandEvent{},
 	); err != nil {
 		log.Fatalf("Failed to auto-migrate: %v", err)
 	}
@@ -63,6 +66,7 @@ func main() {
 	// Create services (both share the same GORM handle)
 	gardenSvc := service.NewGardenService(gormDB)
 	authSvcV2 := service.NewAuthServiceV2(authService)
+	controlSvc := service.NewControlService(gormDB)
 
 	// Create mux and register services
 	mux := http.NewServeMux()
@@ -80,6 +84,12 @@ func main() {
 		connect.WithInterceptors(authInterceptor),
 	)
 	mux.Handle(authV2Path, authV2Handler)
+
+	controlPath, controlHandler := controlv1connect.NewControlServiceHandler(
+		controlSvc,
+		connect.WithInterceptors(authInterceptor),
+	)
+	mux.Handle(controlPath, controlHandler)
 
 	// Add CORS middleware
 	corsHandler := cors(mux)

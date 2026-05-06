@@ -2,6 +2,7 @@ package auth
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,11 +19,234 @@ func setupModelsTestDB(t *testing.T) *gorm.DB {
 		t.Fatalf("failed to create test database: %v", err)
 	}
 
-	if err := db.AutoMigrate(&User{}, &HubToken{}); err != nil {
+	if err := db.AutoMigrate(&User{}, &HubToken{}, &Hub{}, &SensorNode{}, &MotorCommand{}, &MotorCommandEvent{}); err != nil {
 		t.Fatalf("failed to migrate database: %v", err)
 	}
 
 	return db
+}
+
+// ============================================================================
+// MotorCommand Model Tests
+// ============================================================================
+
+func TestMotorCommandModel(t *testing.T) {
+	db := setupModelsTestDB(t)
+
+	user := User{Email: "motor-command@example.com", PasswordHash: "hash"}
+	require.NoError(t, db.Create(&user).Error)
+
+	hub := Hub{UserID: user.ID, Name: "Test Hub"}
+	require.NoError(t, db.Create(&hub).Error)
+
+	t.Run("creates command with expected queue fields", func(t *testing.T) {
+		expiresAt := time.Now().Add(5 * time.Minute).UTC()
+		command := MotorCommand{
+			CommandID:      "cmd-001",
+			UserID:         user.ID,
+			HubID:          hub.ID,
+			NodeID:         "node-001",
+			Action:         "start",
+			DurationMS:     1200,
+			Status:         "pending",
+			IdempotencyKey: "idem-001",
+			ExpiresAt:      expiresAt,
+		}
+
+		err := db.Create(&command).Error
+		require.NoError(t, err)
+		assert.NotZero(t, command.ID)
+		assert.NotZero(t, command.CreatedAt)
+		assert.NotZero(t, command.UpdatedAt)
+		assert.Equal(t, "cmd-001", command.CommandID)
+		assert.Equal(t, "pending", command.Status)
+	})
+
+	t.Run("enforces idempotency uniqueness per user and node", func(t *testing.T) {
+		expiresAt := time.Now().Add(5 * time.Minute).UTC()
+		first := MotorCommand{
+			CommandID:      "cmd-idem-1",
+			UserID:         user.ID,
+			HubID:          hub.ID,
+			NodeID:         "node-idem",
+			Action:         "stop",
+			DurationMS:     100,
+			Status:         "pending",
+			IdempotencyKey: "same-key",
+			ExpiresAt:      expiresAt,
+		}
+		require.NoError(t, db.Create(&first).Error)
+
+		duplicate := MotorCommand{
+			CommandID:      "cmd-idem-2",
+			UserID:         user.ID,
+			HubID:          hub.ID,
+			NodeID:         "node-idem",
+			Action:         "stop",
+			DurationMS:     100,
+			Status:         "pending",
+			IdempotencyKey: "same-key",
+			ExpiresAt:      expiresAt.Add(time.Minute),
+		}
+
+		assert.Error(t, db.Create(&duplicate).Error)
+	})
+
+	t.Run("allows same idempotency key on different node", func(t *testing.T) {
+		expiresAt := time.Now().Add(5 * time.Minute).UTC()
+		command := MotorCommand{
+			CommandID:      "cmd-idem-other-node",
+			UserID:         user.ID,
+			HubID:          hub.ID,
+			NodeID:         "node-other",
+			Action:         "start",
+			DurationMS:     500,
+			Status:         "pending",
+			IdempotencyKey: "same-key",
+			ExpiresAt:      expiresAt,
+		}
+
+		assert.NoError(t, db.Create(&command).Error)
+	})
+
+	t.Run("uses correct table name", func(t *testing.T) {
+		assert.Equal(t, "motor_commands", MotorCommand{}.TableName())
+	})
+
+	t.Run("supports polling query fields", func(t *testing.T) {
+		now := time.Now().UTC()
+		leaseToken := "lease-123"
+		leasedAt := now.Add(30 * time.Second)
+		leaseExpiresAt := now.Add(2 * time.Minute)
+		command := MotorCommand{
+			CommandID:             "cmd-poll-1",
+			UserID:                user.ID,
+			HubID:                 hub.ID,
+			NodeID:                "node-poll",
+			Action:                "start",
+			DurationMS:            750,
+			Status:                "leased",
+			IdempotencyKey:        "idem-poll",
+			LeaseToken:            &leaseToken,
+			LeasedAt:              &leasedAt,
+			LeaseExpiresAt:        &leaseExpiresAt,
+			ExpiresAt:             now.Add(10 * time.Minute),
+			ReasonCode:            "hub_dispatch",
+			ReasonMessage:         "leased for polling",
+			CompletedAt:           nil,
+			TerminalResultCode:    "",
+			TerminalResultMessage: "",
+		}
+		require.NoError(t, db.Create(&command).Error)
+
+		var loaded MotorCommand
+		err := db.Where("hub_id = ? AND status = ?", hub.ID, "leased").First(&loaded).Error
+		require.NoError(t, err)
+		assert.Equal(t, "node-poll", loaded.NodeID)
+		assert.NotNil(t, loaded.LeaseToken)
+		assert.Equal(t, leaseToken, *loaded.LeaseToken)
+	})
+
+	t.Run("loads related events", func(t *testing.T) {
+		command := MotorCommand{
+			CommandID:      "cmd-with-event",
+			UserID:         user.ID,
+			HubID:          hub.ID,
+			NodeID:         "node-event",
+			Action:         "stop",
+			DurationMS:     1500,
+			Status:         "completed",
+			IdempotencyKey: "idem-event",
+			ExpiresAt:      time.Now().Add(5 * time.Minute).UTC(),
+		}
+		require.NoError(t, db.Create(&command).Error)
+
+		event := MotorCommandEvent{
+			MotorCommandID: command.ID,
+			CommandID:      command.CommandID,
+			ActorType:      "hub",
+			ActorID:        "hub-1",
+			PreviousStatus: "leased",
+			NewStatus:      "completed",
+			ReasonCode:     "ok",
+			ReasonMessage:  "command finished",
+			Message:        "hub reported completion",
+		}
+		require.NoError(t, db.Create(&event).Error)
+
+		var loaded MotorCommand
+		err := db.Preload("Events").First(&loaded, command.ID).Error
+		require.NoError(t, err)
+		require.Len(t, loaded.Events, 1)
+		assert.Equal(t, "completed", loaded.Events[0].NewStatus)
+	})
+}
+
+// ============================================================================
+// MotorCommandEvent Model Tests
+// ============================================================================
+
+func TestMotorCommandEventModel(t *testing.T) {
+	db := setupModelsTestDB(t)
+
+	user := User{Email: "motor-event@example.com", PasswordHash: "hash"}
+	require.NoError(t, db.Create(&user).Error)
+
+	hub := Hub{UserID: user.ID, Name: "Event Hub"}
+	require.NoError(t, db.Create(&hub).Error)
+
+	command := MotorCommand{
+		CommandID:      "cmd-event-001",
+		UserID:         user.ID,
+		HubID:          hub.ID,
+		NodeID:         "node-event-001",
+		Action:         "start",
+		DurationMS:     999,
+		Status:         "pending",
+		IdempotencyKey: "idem-event-001",
+		ExpiresAt:      time.Now().Add(5 * time.Minute).UTC(),
+	}
+	require.NoError(t, db.Create(&command).Error)
+
+	t.Run("creates append-only audit event", func(t *testing.T) {
+		event := MotorCommandEvent{
+			MotorCommandID: command.ID,
+			CommandID:      command.CommandID,
+			ActorType:      "user",
+			ActorID:        "user-1",
+			PreviousStatus: "pending",
+			NewStatus:      "leased",
+			ReasonCode:     "dispatch",
+			ReasonMessage:  "queued for hub",
+			Message:        "command leased to hub",
+		}
+
+		err := db.Create(&event).Error
+		require.NoError(t, err)
+		assert.NotZero(t, event.ID)
+		assert.NotZero(t, event.OccurredAt)
+	})
+
+	t.Run("uses correct table name", func(t *testing.T) {
+		assert.Equal(t, "motor_command_events", MotorCommandEvent{}.TableName())
+	})
+
+	t.Run("loads owning command", func(t *testing.T) {
+		event := MotorCommandEvent{
+			MotorCommandID: command.ID,
+			CommandID:      command.CommandID,
+			ActorType:      "system",
+			ActorID:        "scheduler",
+			NewStatus:      "expired",
+		}
+		require.NoError(t, db.Create(&event).Error)
+
+		var loaded MotorCommandEvent
+		err := db.Preload("MotorCommand").First(&loaded, event.ID).Error
+		require.NoError(t, err)
+		assert.Equal(t, command.ID, loaded.MotorCommand.ID)
+		assert.Equal(t, command.CommandID, loaded.MotorCommand.CommandID)
+	})
 }
 
 // ============================================================================

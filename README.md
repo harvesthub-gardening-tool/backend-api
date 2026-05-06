@@ -65,6 +65,8 @@ docker-compose up db
 DATABASE_URL="postgres://user:password@localhost:5432/garden_db?sslmode=disable" go run server/main.go
 ```
 
+See [Local Development Database Workflow](docs/DEV_DB_WORKFLOW.md) for details on resetting the local database and managing seed data.
+
 ### Testing
 
 Run the full backend test suite:
