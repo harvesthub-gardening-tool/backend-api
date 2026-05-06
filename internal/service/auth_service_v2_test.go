@@ -17,6 +17,14 @@ import (
 	"harvest-hub/api/internal/service"
 )
 
+func requireConnectCode(t *testing.T, err error, code connect.Code) {
+	t.Helper()
+
+	connectErr := new(connect.Error)
+	require.ErrorAs(t, err, &connectErr)
+	assert.Equal(t, code, connectErr.Code())
+}
+
 func setupAuthServiceV2(t *testing.T) (*service.AuthServiceV2, *auth.AuthService) {
 	t.Helper()
 
@@ -133,4 +141,271 @@ func TestAuthServiceV2_ChangePasswordMapsMissingFields(t *testing.T) {
 		require.ErrorAs(t, err, &connectErr)
 		assert.Equal(t, connect.CodeInvalidArgument, connectErr.Code())
 	}
+}
+
+func TestAuthServiceV2_Register(t *testing.T) {
+	handler, authService := setupAuthServiceV2(t)
+
+	t.Run("registers user and returns token", func(t *testing.T) {
+		res, err := handler.Register(context.Background(), connect.NewRequest(&authv2.RegisterRequest{
+			Email:    "register-success@example.com",
+			Password: "password123",
+		}))
+		require.NoError(t, err)
+		assert.NotEmpty(t, res.Msg.UserId)
+		assert.NotEmpty(t, res.Msg.Token)
+
+		_, err = authService.LoginUser(context.Background(), "register-success@example.com", "password123")
+		assert.NoError(t, err)
+	})
+
+	t.Run("maps duplicate email to already exists", func(t *testing.T) {
+		_, err := authService.RegisterUser(context.Background(), "register-dup@example.com", "password123")
+		require.NoError(t, err)
+
+		_, err = handler.Register(context.Background(), connect.NewRequest(&authv2.RegisterRequest{
+			Email:    "register-dup@example.com",
+			Password: "password123",
+		}))
+		requireConnectCode(t, err, connect.CodeAlreadyExists)
+	})
+
+	t.Run("maps invalid inputs to invalid argument", func(t *testing.T) {
+		cases := []*authv2.RegisterRequest{
+			{Email: "invalid-email", Password: "password123"},
+			{Email: "weak-password@example.com", Password: "short"},
+		}
+
+		for _, req := range cases {
+			_, err := handler.Register(context.Background(), connect.NewRequest(req))
+			requireConnectCode(t, err, connect.CodeInvalidArgument)
+		}
+	})
+
+	t.Run("maps unexpected backend errors to internal", func(t *testing.T) {
+		canceledCtx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		_, err := handler.Register(canceledCtx, connect.NewRequest(&authv2.RegisterRequest{
+			Email:    "register-canceled@example.com",
+			Password: "password123",
+		}))
+		requireConnectCode(t, err, connect.CodeInternal)
+	})
+}
+
+func TestAuthServiceV2_Login(t *testing.T) {
+	handler, authService := setupAuthServiceV2(t)
+	_, err := authService.RegisterUser(context.Background(), "login-user@example.com", "password123")
+	require.NoError(t, err)
+
+	t.Run("logs in and returns token", func(t *testing.T) {
+		res, err := handler.Login(context.Background(), connect.NewRequest(&authv2.LoginRequest{
+			Email:    "login-user@example.com",
+			Password: "password123",
+		}))
+		require.NoError(t, err)
+		assert.NotEmpty(t, res.Msg.Token)
+	})
+
+	t.Run("maps invalid credentials to unauthenticated", func(t *testing.T) {
+		_, err := handler.Login(context.Background(), connect.NewRequest(&authv2.LoginRequest{
+			Email:    "login-user@example.com",
+			Password: "wrong-password",
+		}))
+		requireConnectCode(t, err, connect.CodeUnauthenticated)
+	})
+
+	t.Run("maps unexpected backend errors to internal", func(t *testing.T) {
+		canceledCtx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		_, err := handler.Login(canceledCtx, connect.NewRequest(&authv2.LoginRequest{
+			Email:    "login-user@example.com",
+			Password: "password123",
+		}))
+		requireConnectCode(t, err, connect.CodeInternal)
+	})
+}
+
+func TestAuthServiceV2_AssociateHub(t *testing.T) {
+	handler, authService := setupAuthServiceV2(t)
+	userID, err := authService.RegisterUser(context.Background(), "associate-v2@example.com", "password123")
+	require.NoError(t, err)
+
+	t.Run("requires authenticated user", func(t *testing.T) {
+		_, err := handler.AssociateHub(context.Background(), connect.NewRequest(&authv2.AssociateHubRequest{}))
+		requireConnectCode(t, err, connect.CodeUnauthenticated)
+	})
+
+	t.Run("associates hub for authenticated user", func(t *testing.T) {
+		res, err := handler.AssociateHub(authUserCtx(userID), connect.NewRequest(&authv2.AssociateHubRequest{
+			DeviceId:  "assoc-v2-device-1",
+			HubSecret: "assoc-v2-secret-1",
+			HubName:   "Associate V2 Hub",
+		}))
+		require.NoError(t, err)
+		assert.NotEmpty(t, res.Msg.HubId)
+		assert.Equal(t, "assoc-v2-device-1", res.Msg.DeviceId)
+		assert.Equal(t, "Associate V2 Hub", res.Msg.HubName)
+	})
+
+	t.Run("maps duplicate device to already exists", func(t *testing.T) {
+		_, err := handler.AssociateHub(authUserCtx(userID), connect.NewRequest(&authv2.AssociateHubRequest{
+			DeviceId:  "assoc-v2-device-dup",
+			HubSecret: "assoc-v2-secret-dup",
+			HubName:   "Hub First",
+		}))
+		require.NoError(t, err)
+
+		_, err = handler.AssociateHub(authUserCtx(userID), connect.NewRequest(&authv2.AssociateHubRequest{
+			DeviceId:  "assoc-v2-device-dup",
+			HubSecret: "assoc-v2-secret-dup-2",
+			HubName:   "Hub Second",
+		}))
+		requireConnectCode(t, err, connect.CodeAlreadyExists)
+	})
+
+	t.Run("maps unexpected backend errors to internal", func(t *testing.T) {
+		invalidUserCtx := authctx.SetAuthInfo(context.Background(), &authctx.AuthInfo{
+			UserID:   "not-a-number",
+			Username: "user@example.com",
+		})
+
+		_, err := handler.AssociateHub(invalidUserCtx, connect.NewRequest(&authv2.AssociateHubRequest{
+			DeviceId:  "assoc-v2-device-invalid-user",
+			HubSecret: "assoc-v2-secret-invalid-user",
+			HubName:   "Invalid User Hub",
+		}))
+		requireConnectCode(t, err, connect.CodeInternal)
+	})
+}
+
+func TestAuthServiceV2_ClaimHubToken(t *testing.T) {
+	handler, authService := setupAuthServiceV2(t)
+	userID, err := authService.RegisterUser(context.Background(), "claim-v2@example.com", "password123")
+	require.NoError(t, err)
+
+	t.Run("claims hub token", func(t *testing.T) {
+		_, err := authService.AssociateHub(context.Background(), userID, "claim-v2-device-1", "claim-v2-secret-1", "Claim V2 Hub")
+		require.NoError(t, err)
+
+		res, err := handler.ClaimHubToken(context.Background(), connect.NewRequest(&authv2.ClaimHubTokenRequest{
+			DeviceId:  "claim-v2-device-1",
+			HubSecret: "claim-v2-secret-1",
+		}))
+		require.NoError(t, err)
+		assert.NotEmpty(t, res.Msg.Token)
+	})
+
+	t.Run("maps invalid credentials to permission denied", func(t *testing.T) {
+		_, err := handler.ClaimHubToken(context.Background(), connect.NewRequest(&authv2.ClaimHubTokenRequest{
+			DeviceId:  "unknown-claim-v2-device",
+			HubSecret: "any",
+		}))
+		requireConnectCode(t, err, connect.CodePermissionDenied)
+	})
+
+	t.Run("maps already claimed to failed precondition", func(t *testing.T) {
+		_, err := authService.AssociateHub(context.Background(), userID, "claim-v2-device-2", "claim-v2-secret-2", "Claimed Once")
+		require.NoError(t, err)
+		_, err = authService.ClaimHubToken(context.Background(), "claim-v2-device-2", "claim-v2-secret-2")
+		require.NoError(t, err)
+
+		_, err = handler.ClaimHubToken(context.Background(), connect.NewRequest(&authv2.ClaimHubTokenRequest{
+			DeviceId:  "claim-v2-device-2",
+			HubSecret: "claim-v2-secret-2",
+		}))
+		requireConnectCode(t, err, connect.CodeFailedPrecondition)
+	})
+
+	t.Run("maps unexpected backend errors to internal", func(t *testing.T) {
+		canceledCtx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		_, err := handler.ClaimHubToken(canceledCtx, connect.NewRequest(&authv2.ClaimHubTokenRequest{
+			DeviceId:  "claim-v2-device-1",
+			HubSecret: "claim-v2-secret-1",
+		}))
+		requireConnectCode(t, err, connect.CodeInternal)
+	})
+}
+
+func TestAuthServiceV2_ListHubs(t *testing.T) {
+	handler, authService := setupAuthServiceV2(t)
+	userID, err := authService.RegisterUser(context.Background(), "listhubs-v2@example.com", "password123")
+	require.NoError(t, err)
+
+	t.Run("requires authentication", func(t *testing.T) {
+		_, err := handler.ListHubs(context.Background(), connect.NewRequest(&authv2.ListHubsRequest{}))
+		requireConnectCode(t, err, connect.CodeUnauthenticated)
+	})
+
+	t.Run("lists hubs for the authenticated user", func(t *testing.T) {
+		_, err := authService.AssociateHub(context.Background(), userID, "listhubs-v2-device-1", "listhubs-v2-secret-1", "Unclaimed")
+		require.NoError(t, err)
+		_, err = authService.AssociateHub(context.Background(), userID, "listhubs-v2-device-2", "listhubs-v2-secret-2", "Claimed")
+		require.NoError(t, err)
+		_, err = authService.ClaimHubToken(context.Background(), "listhubs-v2-device-2", "listhubs-v2-secret-2")
+		require.NoError(t, err)
+
+		res, err := handler.ListHubs(authUserCtx(userID), connect.NewRequest(&authv2.ListHubsRequest{}))
+		require.NoError(t, err)
+		require.Len(t, res.Msg.Hubs, 2)
+
+		statusByDevice := map[string]*authv2.HubInfo{}
+		for _, hub := range res.Msg.Hubs {
+			statusByDevice[hub.DeviceId] = hub
+		}
+
+		require.Contains(t, statusByDevice, "listhubs-v2-device-1")
+		require.Contains(t, statusByDevice, "listhubs-v2-device-2")
+		assert.False(t, statusByDevice["listhubs-v2-device-1"].Claimed)
+		assert.True(t, statusByDevice["listhubs-v2-device-2"].Claimed)
+	})
+
+	t.Run("maps backend errors to internal", func(t *testing.T) {
+		canceledCtx, cancel := context.WithCancel(authUserCtx(userID))
+		cancel()
+
+		_, err := handler.ListHubs(canceledCtx, connect.NewRequest(&authv2.ListHubsRequest{}))
+		requireConnectCode(t, err, connect.CodeInternal)
+	})
+}
+
+func TestAuthServiceV2_RevokeHub(t *testing.T) {
+	handler, authService := setupAuthServiceV2(t)
+	userID, err := authService.RegisterUser(context.Background(), "revoke-v2@example.com", "password123")
+	require.NoError(t, err)
+
+	t.Run("requires authentication", func(t *testing.T) {
+		_, err := handler.RevokeHub(context.Background(), connect.NewRequest(&authv2.RevokeHubRequest{HubId: "1"}))
+		requireConnectCode(t, err, connect.CodeUnauthenticated)
+	})
+
+	t.Run("revokes an owned hub", func(t *testing.T) {
+		hubID, err := authService.AssociateHub(context.Background(), userID, "revoke-v2-device-1", "revoke-v2-secret-1", "Revokable Hub")
+		require.NoError(t, err)
+		_, err = authService.ClaimHubToken(context.Background(), "revoke-v2-device-1", "revoke-v2-secret-1")
+		require.NoError(t, err)
+
+		_, err = handler.RevokeHub(authUserCtx(userID), connect.NewRequest(&authv2.RevokeHubRequest{HubId: hubID}))
+		require.NoError(t, err)
+
+		_, err = authService.ClaimHubToken(context.Background(), "revoke-v2-device-1", "revoke-v2-secret-1")
+		assert.NoError(t, err)
+	})
+
+	t.Run("maps unknown hub to not found", func(t *testing.T) {
+		_, err := handler.RevokeHub(authUserCtx(userID), connect.NewRequest(&authv2.RevokeHubRequest{HubId: "999999"}))
+		requireConnectCode(t, err, connect.CodeNotFound)
+	})
+
+	t.Run("maps backend errors to internal", func(t *testing.T) {
+		canceledCtx, cancel := context.WithCancel(authUserCtx(userID))
+		cancel()
+
+		_, err := handler.RevokeHub(canceledCtx, connect.NewRequest(&authv2.RevokeHubRequest{HubId: "1"}))
+		requireConnectCode(t, err, connect.CodeInternal)
+	})
 }

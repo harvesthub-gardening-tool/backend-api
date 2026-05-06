@@ -2,6 +2,7 @@ package authctx_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	authctx "harvest-hub/api/internal/auth/context"
@@ -66,6 +67,17 @@ func TestGetAuthInfo(t *testing.T) {
 			t.Error("expected ok=false")
 		}
 	})
+
+	t.Run("returns false when auth info is explicitly nil", func(t *testing.T) {
+		ctx := authctx.SetAuthInfo(context.Background(), nil)
+		got, ok := authctx.GetAuthInfo(ctx)
+		if ok {
+			t.Error("expected ok=false")
+		}
+		if got != nil {
+			t.Errorf("expected nil info, got %+v", got)
+		}
+	})
 }
 
 func TestIsServiceAccount(t *testing.T) {
@@ -104,4 +116,62 @@ func TestAuthInfo_IsServiceAccount(t *testing.T) {
 			t.Error("expected false")
 		}
 	})
+}
+
+func TestGetHubID(t *testing.T) {
+	t.Run("returns hub ID from context", func(t *testing.T) {
+		ctx := authctx.SetAuthInfo(context.Background(), &authctx.AuthInfo{
+			UserID:   "user-123",
+			Username: "",
+			HubID:    "hub-42",
+		})
+
+		if got := authctx.GetHubID(ctx); got != "hub-42" {
+			t.Errorf("GetHubID() = %q, want %q", got, "hub-42")
+		}
+	})
+
+	t.Run("returns empty when not set", func(t *testing.T) {
+		if got := authctx.GetHubID(context.Background()); got != "" {
+			t.Errorf("GetHubID() = %q, want empty", got)
+		}
+	})
+}
+
+func TestAccessors_NilAuthInfoDoesNotPanic(t *testing.T) {
+	ctx := authctx.SetAuthInfo(context.Background(), nil)
+
+	assertNoPanic(t, func() {
+		if got := authctx.GetUserID(ctx); got != "" {
+			t.Errorf("GetUserID() = %q, want empty", got)
+		}
+	})
+
+	assertNoPanic(t, func() {
+		if got := authctx.GetUsername(ctx); got != "" {
+			t.Errorf("GetUsername() = %q, want empty", got)
+		}
+	})
+
+	assertNoPanic(t, func() {
+		if got := authctx.GetHubID(ctx); got != "" {
+			t.Errorf("GetHubID() = %q, want empty", got)
+		}
+	})
+
+	assertNoPanic(t, func() {
+		if authctx.IsServiceAccount(ctx) {
+			t.Error("IsServiceAccount() = true, want false")
+		}
+	})
+}
+
+func assertNoPanic(t *testing.T, fn func()) {
+	t.Helper()
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("unexpected panic: %v", fmt.Sprint(r))
+		}
+	}()
+	fn()
 }

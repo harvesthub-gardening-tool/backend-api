@@ -34,6 +34,9 @@ func SetAuthInfo(ctx context.Context, info *AuthInfo) context.Context {
 // GetUserID returns the authenticated user's ID, or empty string if not set.
 func GetUserID(ctx context.Context) string {
 	if info, ok := ctx.Value(authKey).(*AuthInfo); ok {
+		if info == nil {
+			return ""
+		}
 		return info.UserID
 	}
 	return ""
@@ -43,6 +46,9 @@ func GetUserID(ctx context.Context) string {
 // An empty string indicates a service account (Hub device).
 func GetUsername(ctx context.Context) string {
 	if info, ok := ctx.Value(authKey).(*AuthInfo); ok {
+		if info == nil {
+			return ""
+		}
 		return info.Username
 	}
 	return ""
@@ -52,6 +58,9 @@ func GetUsername(ctx context.Context) string {
 // whether auth info was present.
 func GetAuthInfo(ctx context.Context) (*AuthInfo, bool) {
 	info, ok := ctx.Value(authKey).(*AuthInfo)
+	if !ok || info == nil {
+		return nil, false
+	}
 	return info, ok
 }
 
@@ -59,6 +68,9 @@ func GetAuthInfo(ctx context.Context) (*AuthInfo, bool) {
 // (token has empty username), or false if no auth info is present.
 func IsServiceAccount(ctx context.Context) bool {
 	if info, ok := ctx.Value(authKey).(*AuthInfo); ok {
+		if info == nil {
+			return false
+		}
 		return info.Username == ""
 	}
 	return false
@@ -68,6 +80,9 @@ func IsServiceAccount(ctx context.Context) bool {
 // Non-empty only for v2 hub tokens issued by ClaimHubToken.
 func GetHubID(ctx context.Context) string {
 	if info, ok := ctx.Value(authKey).(*AuthInfo); ok {
+		if info == nil {
+			return ""
+		}
 		return info.HubID
 	}
 	return ""

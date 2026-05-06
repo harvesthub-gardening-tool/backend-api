@@ -65,6 +65,33 @@ docker-compose up db
 DATABASE_URL="postgres://user:password@localhost:5432/garden_db?sslmode=disable" go run server/main.go
 ```
 
+### Testing
+
+Run the full backend test suite:
+
+```bash
+go test ./...
+```
+
+Run a single package:
+
+```bash
+go test ./internal/service/ -v
+```
+
+Run a single test by name:
+
+```bash
+go test ./internal/service/ -run TestFunctionName -v
+```
+
+Generate a coverage report:
+
+```bash
+go test ./... -coverprofile=coverage.out
+go tool cover -func=coverage.out
+```
+
 ## API Endpoints
 
 All endpoints use Connect protocol (gRPC-compatible):
