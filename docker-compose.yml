@@ -6,6 +6,10 @@ services:
         environment:
             - DATABASE_URL=${DATABASE_URL}
             - JWT_KEY_PATH=${JWT_KEY_PATH:-.}
+            - MISTRAL_API_KEY=${MISTRAL_API_KEY}
+            - MISTRAL_AGENT_ID=${MISTRAL_AGENT_ID}
+            - MISTRAL_AGENT_VERSION=${MISTRAL_AGENT_VERSION:-1}
+            - MISTRAL_BASE_URL=${MISTRAL_BASE_URL:-}
         extra_hosts:
             - "localhost:host-gateway"
         depends_on:
