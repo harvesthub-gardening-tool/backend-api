@@ -23,8 +23,8 @@ import (
 const (
 	maxMotorCommandDurationMS   = int32(5000)
 	minMotorCommandTTL          = 5 * time.Second
-	maxMotorCommandTTL          = 80 * time.Second
-	defaultMotorCommandExpiry   = 80 * time.Second
+	maxMotorCommandTTL          = 5 * time.Minute
+	defaultMotorCommandExpiry   = 5 * time.Minute
 	defaultMotorLeaseDuration   = 15 * time.Second
 	maxPullMotorCommands        = int32(10)
 	motorCommandRateLimitWindow = 30 * time.Second

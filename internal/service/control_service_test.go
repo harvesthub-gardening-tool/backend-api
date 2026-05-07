@@ -334,7 +334,7 @@ func TestControlService_CreateMotorCommand(t *testing.T) {
 			},
 			{
 				name:      "expiry above maximum ttl",
-				expiresAt: time.Now().Add(90 * time.Second).UnixMilli(),
+				expiresAt: time.Now().Add(6 * time.Minute).UnixMilli(),
 			},
 		}
 
@@ -880,6 +880,48 @@ func TestControlService_AckMotorCommandEvent(t *testing.T) {
 		assert.Equal(t, "sent_to_probe", events[0].NewStatus)
 		assert.Equal(t, "executing", events[1].NewStatus)
 		assert.Equal(t, "succeeded", events[2].NewStatus)
+	})
+
+	t.Run("stale lease rejects non-terminal ack without marking command processed", func(t *testing.T) {
+		db := setupControlServiceDB(t)
+		owner, hub, _ := createOwnedNodeFixture(t, db, "control-ack-stale-lease@example.com", "node-ack-stale-lease")
+		leaseToken := "lease-stale-ack"
+		leasedAt := time.Now().Add(-2 * time.Minute)
+		leaseExpiresAt := time.Now().Add(-1 * time.Second)
+		command := auth.MotorCommand{
+			CommandID:      "cmd-ack-stale-lease",
+			UserID:         owner.ID,
+			HubID:          hub.ID,
+			NodeID:         "node-ack-stale-lease",
+			Action:         "run_for_duration",
+			DurationMS:     1400,
+			Status:         "leased_to_hub",
+			IdempotencyKey: "idem-ack-stale-lease",
+			ReasonCode:     "none",
+			LeaseToken:     &leaseToken,
+			LeasedAt:       &leasedAt,
+			LeaseExpiresAt: &leaseExpiresAt,
+			ExpiresAt:      time.Now().Add(20 * time.Second),
+		}
+		require.NoError(t, db.Create(&command).Error)
+
+		svc := service.NewControlService(db)
+		_, err := svc.AckMotorCommandEvent(controlHubCtx(owner.ID, hub.ID), connect.NewRequest(&controlv1.AckMotorCommandEventRequest{
+			CommandId:     "cmd-ack-stale-lease",
+			NodeId:        "node-ack-stale-lease",
+			Status:        controlv1.MotorCommandStatus_MOTOR_COMMAND_STATUS_SENT_TO_PROBE,
+			ReasonCode:    controlv1.MotorCommandReasonCode_MOTOR_COMMAND_REASON_CODE_NONE,
+			ReasonMessage: "delivered after stale lease",
+		}))
+		require.Error(t, err)
+		assert.Equal(t, connect.CodeFailedPrecondition, connect.CodeOf(err))
+
+		stored := requireCommandByExternalID(t, db, "cmd-ack-stale-lease")
+		assert.Equal(t, "leased_to_hub", stored.Status)
+		assert.Equal(t, leaseToken, *stored.LeaseToken)
+
+		events := requireCommandEvents(t, db, "cmd-ack-stale-lease")
+		assert.Empty(t, events)
 	})
 
 	t.Run("create poll ack appends canonical transition history in order", func(t *testing.T) {
