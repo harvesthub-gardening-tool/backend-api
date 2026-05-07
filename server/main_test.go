@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
@@ -65,5 +66,54 @@ func TestCORSPassesThroughNonOptions(t *testing.T) {
 	}
 	if got := w.Header().Get("Access-Control-Allow-Origin"); got != "*" {
 		t.Fatalf("Access-Control-Allow-Origin = %q, want *", got)
+	}
+}
+
+func TestParseEnvInt(t *testing.T) {
+	t.Run("returns fallback when variable is missing", func(t *testing.T) {
+		const key = "TEST_PARSE_ENV_INT_MISSING"
+		t.Setenv(key, "")
+
+		if got := parseEnvInt(key, 7); got != 7 {
+			t.Fatalf("parseEnvInt() = %d, want 7", got)
+		}
+	})
+
+	t.Run("parses integer values", func(t *testing.T) {
+		const key = "TEST_PARSE_ENV_INT_VALID"
+		t.Setenv(key, "42")
+
+		if got := parseEnvInt(key, 7); got != 42 {
+			t.Fatalf("parseEnvInt() = %d, want 42", got)
+		}
+	})
+
+	t.Run("returns fallback when value is invalid", func(t *testing.T) {
+		const key = "TEST_PARSE_ENV_INT_INVALID"
+		t.Setenv(key, "not-a-number")
+
+		if got := parseEnvInt(key, 7); got != 7 {
+			t.Fatalf("parseEnvInt() = %d, want 7", got)
+		}
+	})
+}
+
+func TestParseEnvIntUsesProcessEnv(t *testing.T) {
+	const key = "TEST_PARSE_ENV_INT_PROCESS"
+	original, hadOriginal := os.LookupEnv(key)
+	t.Cleanup(func() {
+		if hadOriginal {
+			_ = os.Setenv(key, original)
+			return
+		}
+		_ = os.Unsetenv(key)
+	})
+
+	if err := os.Setenv(key, "9"); err != nil {
+		t.Fatalf("Setenv: %v", err)
+	}
+
+	if got := parseEnvInt(key, 1); got != 9 {
+		t.Fatalf("parseEnvInt() = %d, want 9", got)
 	}
 }

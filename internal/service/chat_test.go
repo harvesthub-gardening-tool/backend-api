@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -60,6 +62,12 @@ func (p *fakeChatProvider) Send(_ context.Context, userMessage string, contextBl
 	p.message = userMessage
 	p.contextBlock = contextBlock
 	return p.reply, p.err
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
 
 func TestChatServiceSendMessage(t *testing.T) {
@@ -176,4 +184,136 @@ func TestExtractMistralReply(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestNewMistralProviderDefaults(t *testing.T) {
+	provider := NewMistralProvider(ChatServiceConfig{})
+
+	if provider.baseURL != defaultMistralBaseURL {
+		t.Fatalf("baseURL = %q, want %q", provider.baseURL, defaultMistralBaseURL)
+	}
+	if provider.agentVersion != defaultMistralAgentVersion {
+		t.Fatalf("agentVersion = %d, want %d", provider.agentVersion, defaultMistralAgentVersion)
+	}
+	if provider.httpClient == nil {
+		t.Fatal("expected default HTTP client")
+	}
+}
+
+func TestNewChatServiceUsesMistralProvider(t *testing.T) {
+	db, mock := newChatTestDB(t)
+	svc := NewChatService(db, ChatServiceConfig{APIKey: "key", AgentID: "agent", AgentVersion: 1})
+
+	provider, ok := svc.provider.(*MistralProvider)
+	if !ok {
+		t.Fatalf("provider type = %T, want *MistralProvider", svc.provider)
+	}
+	if provider.apiKey != "key" {
+		t.Fatalf("apiKey = %q, want key", provider.apiKey)
+	}
+	if provider.agentID != "agent" {
+		t.Fatalf("agentID = %q, want agent", provider.agentID)
+	}
+	if provider.agentVersion != 1 {
+		t.Fatalf("agentVersion = %d, want 1", provider.agentVersion)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("unexpected db call: %v", err)
+	}
+}
+
+func TestMistralProviderSend(t *testing.T) {
+	t.Run("requires api key", func(t *testing.T) {
+		provider := NewMistralProvider(ChatServiceConfig{AgentID: "agent", AgentVersion: 1})
+
+		_, err := provider.Send(context.Background(), "hello", "context")
+		if err == nil || !strings.Contains(err.Error(), "MISTRAL_API_KEY") {
+			t.Fatalf("expected missing api key error, got %v", err)
+		}
+	})
+
+	t.Run("requires agent id", func(t *testing.T) {
+		provider := NewMistralProvider(ChatServiceConfig{APIKey: "key", AgentVersion: 1})
+
+		_, err := provider.Send(context.Background(), "hello", "context")
+		if err == nil || !strings.Contains(err.Error(), "MISTRAL_AGENT_ID") {
+			t.Fatalf("expected missing agent id error, got %v", err)
+		}
+	})
+
+	t.Run("surfaces http client errors", func(t *testing.T) {
+		expectedErr := errors.New("network down")
+		provider := NewMistralProvider(ChatServiceConfig{
+			APIKey:       "key",
+			AgentID:      "agent",
+			AgentVersion: 1,
+			HTTPClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				if req.URL.String() != defaultMistralBaseURL+"/v1/conversations" {
+					t.Fatalf("unexpected URL %q", req.URL.String())
+				}
+				if got := req.Header.Get("Authorization"); got != "Bearer key" {
+					t.Fatalf("Authorization = %q, want %q", got, "Bearer key")
+				}
+				return nil, expectedErr
+			})},
+		})
+
+		_, err := provider.Send(context.Background(), "hello", "context")
+		if err == nil || !strings.Contains(err.Error(), expectedErr.Error()) {
+			t.Fatalf("expected wrapped transport error, got %v", err)
+		}
+	})
+
+	t.Run("rejects non-2xx statuses", func(t *testing.T) {
+		provider := NewMistralProvider(ChatServiceConfig{
+			APIKey:       "key",
+			AgentID:      "agent",
+			AgentVersion: 1,
+			HTTPClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusBadGateway,
+					Body:       io.NopCloser(strings.NewReader(`{"error":"bad gateway"}`)),
+					Header:     make(http.Header),
+				}, nil
+			})},
+		})
+
+		_, err := provider.Send(context.Background(), "hello", "context")
+		if err == nil || !strings.Contains(err.Error(), "status 502") {
+			t.Fatalf("expected status error, got %v", err)
+		}
+	})
+
+	t.Run("returns parsed assistant reply", func(t *testing.T) {
+		provider := NewMistralProvider(ChatServiceConfig{
+			APIKey:       "key",
+			AgentID:      "agent",
+			AgentVersion: 1,
+			HTTPClient: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				body, err := io.ReadAll(req.Body)
+				if err != nil {
+					t.Fatalf("ReadAll: %v", err)
+				}
+				payload := string(body)
+				for _, want := range []string{`"agent_id":"agent"`, `"agent_version":1`, `User question:\nhello`} {
+					if !strings.Contains(payload, want) {
+						t.Fatalf("request payload missing %q in %s", want, payload)
+					}
+				}
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Body:       io.NopCloser(strings.NewReader(`{"outputs":[{"role":"assistant","content":"Bonjour"}]}`)),
+					Header:     make(http.Header),
+				}, nil
+			})},
+		})
+
+		reply, err := provider.Send(context.Background(), "hello", "context")
+		if err != nil {
+			t.Fatalf("Send returned error: %v", err)
+		}
+		if reply != "Bonjour" {
+			t.Fatalf("reply = %q, want Bonjour", reply)
+		}
+	})
 }
